@@ -150,13 +150,13 @@ if __name__ == "__main__":
 
             # Save checkpoint3n
             if (epoch % n_freq_checkpoint) == 0 and epoch > 0:
-                torch.save(model.state_dict(), checkpoint_prefix + '_vtrpr_checkpoint-{}.pth'.format(epoch))
+                torch.save(model.state_dict(), checkpoint_prefix + '_relformer_checkpoint-{}.pth'.format(epoch))
 
             # Scheduler update
             scheduler.step()
 
         logging.info('Training completed')
-        torch.save(model.state_dict(), checkpoint_prefix + '_vtrpr_final.pth')
+        torch.save(model.state_dict(), checkpoint_prefix + '_relformer_final.pth')
 
 
     else: # Test
@@ -170,7 +170,6 @@ if __name__ == "__main__":
                          'shuffle': False,
                          'num_workers': config.get('n_workers')}
         dataloader = torch.utils.data.DataLoader(test_dataset, **loader_params)
-        time_stats_rpr = np.zeros(len(dataloader.dataset))
         pose_stats = np.zeros((len(dataloader.dataset), 3))
         with torch.no_grad():
             for i, minibatch in enumerate(dataloader, 0):
@@ -179,12 +178,11 @@ if __name__ == "__main__":
                 gt_rel_pose = minibatch.get('rel_pose').to(dtype=torch.float32)
 
                 # Forward pass to predict the initial pose guess
-                tic = time.time()
+                t0 = time.time()
                 res = model(minibatch)
                 est_rel_pose = res['rel_pose']
                 torch.cuda.synchronize()
                 tn = time.time()
-                time_stats_rpr[i] = (tn - tic)*1000
 
                 # Evaluate error
                 posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
@@ -196,12 +194,12 @@ if __name__ == "__main__":
 
 
                 logging.info("Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms]".format(
-                    abs_stats[i, 0],  abs_stats[i, 1],  abs_stats[i, 2]))
+                    pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2]))
 
         # Record overall statistics
         logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))
-        logging.info("Median pose error: {:.3f}[m], {:.3f}[deg]".format(np.nanmedian(abs_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
-        logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(time_stats_rpr)))
+        logging.info("Median pose error: {:.3f}[m], {:.3f}[deg]".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
+        logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(pose_stats)))
 
 
 
