@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 import pandas as pd
 from os.path import join
 import numpy as np
+import transforms3d as t3d
 
 
 class RelPoseDataset(Dataset):
@@ -51,12 +52,19 @@ def read_pairs_file(dataset_path, labels_file):
     n = df.shape[0]
     for suffix in ["a", "b"]:
         img_paths.append([join(dataset_path, path) for path in df['img_path_{}'.format(suffix)].values])
-        scenes.append(df['scene_{}'.format(suffix)].values)
-        scene_ids.append( df['scene_id_{}'.format(suffix)].values)
+        if "scene_{}".format(suffix) in df.keys():
+            scenes.append(df['scene_{}'.format(suffix)].values)
+            scene_ids.append( df['scene_id_{}'.format(suffix)].values)
+        else:
+            scenes.append([])
+            scene_ids.append([])
         poses = np.zeros((n, 7))
-        poses[:, 0] = df['x1_{}'.format(suffix)].values
-        poses[:, 1] = df['x2_{}'.format(suffix)].values
-        poses[:, 2] = df['x3_{}'.format(suffix)].values
+        position_key = "x"
+        if "x1_a" not in df.keys():
+            position_key = "t"
+        poses[:, 0] = df['{}1_{}'.format(position_key, suffix)].values
+        poses[:, 1] = df['{}2_{}'.format(position_key, suffix)].values
+        poses[:, 2] = df['{}3_{}'.format(position_key, suffix)].values
         poses[:, 3] = df['q1_{}'.format(suffix)].values
         poses[:, 4] = df['q2_{}'.format(suffix)].values
         poses[:, 5] = df['q3_{}'.format(suffix)].values
@@ -68,12 +76,34 @@ def read_pairs_file(dataset_path, labels_file):
     poses1, poses2 = all_poses
     rel_poses = np.zeros((n, 7))
     suffix = "ab"
-    rel_poses[:, 0] = df['x1_{}'.format(suffix)].values
-    rel_poses[:, 1] = df['x2_{}'.format(suffix)].values
-    rel_poses[:, 2] = df['x3_{}'.format(suffix)].values
-    rel_poses[:, 3] = df['q1_{}'.format(suffix)].values
-    rel_poses[:, 4] = df['q2_{}'.format(suffix)].values
-    rel_poses[:, 5] = df['q3_{}'.format(suffix)].values
-    rel_poses[:, 6] = df['q4_{}'.format(suffix)].values
+    if "x1_ab" in df.keys():
+        rel_poses[:, 0] = df['x1_{}'.format(suffix)].values
+        rel_poses[:, 1] = df['x2_{}'.format(suffix)].values
+        rel_poses[:, 2] = df['x3_{}'.format(suffix)].values
+        rel_poses[:, 3] = df['q1_{}'.format(suffix)].values
+        rel_poses[:, 4] = df['q2_{}'.format(suffix)].values
+        rel_poses[:, 5] = df['q3_{}'.format(suffix)].values
+        rel_poses[:, 6] = df['q4_{}'.format(suffix)].values
+    else:
+        for i, p1 in enumerate(poses1):
+            p2 = poses2[i]
+            x_rel, q_rel =  compute_rel_pose(p1, p2)
+            rel_poses[i, :3]  = x_rel
+            rel_poses[i, 3:] = q_rel
+
 
     return img_paths1, scenes1, scene_ids1, poses1, img_paths2, scenes2, scene_ids2, poses2, rel_poses
+
+def compute_rel_pose(p1, p2):
+    t1 = p1[:3]
+    q1 = p1[3:]
+    rot1 = t3d.quaternions.quat2mat(q1 / np.linalg.norm(q1))
+
+    t2 = p2[:3]
+    q2 = p2[3:]
+    rot2 = t3d.quaternions.quat2mat(q2 / np.linalg.norm(q2))
+
+    t_rel = t2 - t1
+    rot_rel = np.dot(np.linalg.inv(rot1), rot2)
+    q_rel = t3d.quaternions.mat2quat(rot_rel)
+    return t_rel, q_rel
