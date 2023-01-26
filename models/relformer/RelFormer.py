@@ -74,6 +74,75 @@ class RelFormer(nn.Module):
         rel_pose = torch.cat((rel_x, rel_q), dim=1)
         return { "z_query":z_query, "z_pos":z_pos, "z_neg":z_neg, "rel_pose":rel_pose}
 
+class RelFormer2(nn.Module):
+
+    def __init__(self, config, pretrained_path):
+        """ Initializes the model.
+        """
+        super().__init__()
+
+        config["backbone"] = pretrained_path
+        config["learn_embedding_with_pose_token"] = False
+        self.backbone = build_backbone(config)
+
+        self.transformer_x = Transformer(config)
+        self.transformer_q = Transformer(config)
+        decoder_dim = self.transformer_x.d_model
+
+        self.input_proj = nn.Conv2d(self.backbone.num_channels[0], decoder_dim, kernel_size=1)
+        self.rel_pose_token_x = nn.Parameter(torch.zeros((1, decoder_dim)), requires_grad=True)
+        self.rel_pose_token_q = nn.Parameter(torch.zeros((1, decoder_dim)), requires_grad=True)
+
+        self.regressor_head_trans = PoseRegressor(decoder_dim, 3)
+        self.regressor_head_rot = PoseRegressor(decoder_dim, 4)
+
+    def forward(self, data):
+
+        query = data.get('query')
+        positive = data.get('ref')
+        negative = data.get('negative')
+
+        z_neg = None
+        if negative is not None:
+            if isinstance(negative, (list, torch.Tensor)):
+                negative = nested_tensor_from_tensor_list(negative)
+            negative, _ = self.backbone(negative)
+            negative, _ = negative[0].decompose()
+            z_neg = self.input_proj(negative).flatten(start_dim=1)
+
+        batch_size = query.shape[0]
+
+        # Handle data structures
+        if isinstance(query, (list, torch.Tensor)):
+            query = nested_tensor_from_tensor_list(query)
+
+        ref = positive
+        if isinstance(ref, (list, torch.Tensor)):
+            ref = nested_tensor_from_tensor_list(ref)
+
+        # Extract the features and the position embedding from the visual backbone
+        features_query, mem_pos_embed = self.backbone(query)
+        query, mask = features_query[0].decompose()
+        query = self.input_proj(query)
+        z_query = query.flatten(start_dim=1)
+
+        features_ref, pos_ref = self.backbone(ref)
+        ref, _ = features_ref[0].decompose()
+        ref = self.input_proj(ref)
+        z_pos = ref.flatten(start_dim=1)
+        ref = ref.flatten(start_dim=2).permute(2,0,1)
+        rel_pose_token_x = self.rel_pose_token_x.unsqueeze(1).repeat(1, batch_size, 1)
+        ref_x = torch.cat((rel_pose_token_x, ref), dim=0)
+        rel_pose_token_q = self.rel_pose_token_q.unsqueeze(1).repeat(1, batch_size, 1)
+        ref_q = torch.cat((rel_pose_token_q, ref), dim=0)
+
+        z_x = self.transformer_x(query, mask, ref_x, mem_pos_embed[0])[0][0][:, 0, :]
+        z_q = self.transformer_q(query, mask, ref_q, mem_pos_embed[0])[0][0][:, 0, :]
+        rel_x = self.regressor_head_trans(z_x)
+        rel_q = self.regressor_head_rot(z_q)
+        rel_pose = torch.cat((rel_x, rel_q), dim=1)
+        return { "z_query":z_query, "z_pos":z_pos, "z_neg":z_neg, "rel_pose":rel_pose}
+
 
 class PoseRegressor(nn.Module):
     """ A simple MLP to regress a pose component"""
