@@ -20,6 +20,7 @@
 		"hidden_dim":64,
 		"dropout": 0.1,
 		"nheads": 4,
+	     "sep_x_q": true,
         "reduction": ["reduction_5"],
 		"freeze": false,
 		"freeze_exclude_phrase": "regressor_head_rot"
