@@ -17,7 +17,7 @@ class RelFormer(nn.Module):
         super().__init__()
 
         config["backbone"] = pretrained_path
-        config["learn_embedding_with_pose_token"] = False
+        config["learn_embedding_with_pose_token"] = True
         self.backbone = build_backbone(config)
 
         self.transformer = Transformer(config)
@@ -54,18 +54,21 @@ class RelFormer(nn.Module):
             ref = nested_tensor_from_tensor_list(ref)
 
         # Extract the features and the position embedding from the visual backbone
-        features_query, mem_pos_embed = self.backbone(query)
+        features_query, pos_embed = self.backbone(query)
+        _, pos_embed_seq = pos_embed[0]
+        pos_embed = pos_embed_seq.flatten(2).permute(2, 0, 1)
         query, mask = features_query[0].decompose()
         query = self.input_proj(query)
         z_query = query.flatten(start_dim=1)
 
-        features_ref, pos_ref = self.backbone(ref)
+        features_ref, ref_pos_embed = self.backbone(ref)
+        ref_pos_embed_tok, ref_pos_embed_seq = ref_pos_embed[0]
+        ref_pos_embed = torch.cat((ref_pos_embed_tok.unsqueeze(2), ref_pos_embed_seq.flatten(2)), dim=2).permute(2, 0,
+                                                                                                                 1)
         ref, _ = features_ref[0].decompose()
         ref = self.input_proj(ref)
         z_pos = ref.flatten(start_dim=1)
-        ref = ref.flatten(start_dim=2).permute(2,0,1)
-        rel_pose_token = self.rel_pose_token.unsqueeze(1).repeat(1, batch_size, 1)
-        ref = torch.cat((rel_pose_token, ref), dim=0)
+        ref = ref.flatten(start_dim=2).permute(2, 0, 1)
 
         z = self.transformer(query, mask, ref, mem_pos_embed[0])[0][0]
         z = z[:, 0, :]
@@ -82,7 +85,7 @@ class RelFormer2(nn.Module):
         super().__init__()
 
         config["backbone"] = pretrained_path
-        config["learn_embedding_with_pose_token"] = False
+        config["learn_embedding_with_pose_token"] = True
         self.backbone = build_backbone(config)
 
         self.transformer_x = Transformer(config)
@@ -121,23 +124,28 @@ class RelFormer2(nn.Module):
             ref = nested_tensor_from_tensor_list(ref)
 
         # Extract the features and the position embedding from the visual backbone
-        features_query, mem_pos_embed = self.backbone(query)
+        features_query, pos_embed = self.backbone(query)
+        _, pos_embed_seq = pos_embed[0]
+        pos_embed = pos_embed_seq.flatten(2).permute(2, 0, 1)
         query, mask = features_query[0].decompose()
         query = self.input_proj(query)
         z_query = query.flatten(start_dim=1)
 
-        features_ref, pos_ref = self.backbone(ref)
+        features_ref, ref_pos_embed = self.backbone(ref)
+        ref_pos_embed_tok, ref_pos_embed_seq = ref_pos_embed[0]
+        ref_pos_embed = torch.cat((ref_pos_embed_tok.unsqueeze(2), ref_pos_embed_seq.flatten(2)), dim=2).permute(2, 0, 1)
         ref, _ = features_ref[0].decompose()
         ref = self.input_proj(ref)
         z_pos = ref.flatten(start_dim=1)
         ref = ref.flatten(start_dim=2).permute(2,0,1)
+
         rel_pose_token_x = self.rel_pose_token_x.unsqueeze(1).repeat(1, batch_size, 1)
         ref_x = torch.cat((rel_pose_token_x, ref), dim=0)
         rel_pose_token_q = self.rel_pose_token_q.unsqueeze(1).repeat(1, batch_size, 1)
         ref_q = torch.cat((rel_pose_token_q, ref), dim=0)
 
-        z_x = self.transformer_x(query, mask, ref_x, mem_pos_embed[0])[0][0][:, 0, :]
-        z_q = self.transformer_q(query, mask, ref_q, mem_pos_embed[0])[0][0][:, 0, :]
+        z_x = self.transformer_x(query, ref_x,  mask, pos_embed, ref_pos_embed)[0][0][:, 0, :]
+        z_q = self.transformer_q(query, ref_q,  mask, pos_embed, ref_pos_embed)[0][0][:, 0, :]
         rel_x = self.regressor_head_trans(z_x)
         rel_q = self.regressor_head_rot(z_q)
         rel_pose = torch.cat((rel_x, rel_q), dim=1)
