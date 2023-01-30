@@ -11,7 +11,7 @@ from .backbone import build_backbone
 
 class RelFormer(nn.Module):
 
-    def __init__(self, config, pretrained_path):
+    def __init__(self, config, pretrained_path, reg_type="both"):
         """ Initializes the model.
         """
         super().__init__()
@@ -26,8 +26,14 @@ class RelFormer(nn.Module):
         self.input_proj = nn.Conv2d(self.backbone.num_channels[0], decoder_dim, kernel_size=1)
         self.rel_pose_token = nn.Parameter(torch.zeros((1, decoder_dim)), requires_grad=True)
 
-        self.regressor_head_trans = PoseRegressor(decoder_dim, 3)
-        self.regressor_head_rot = PoseRegressor(decoder_dim, 4)
+        self.reg_type = reg_type
+        if reg_type == "both":
+            self.regressor_head_trans = PoseRegressor(decoder_dim, 3)
+            self.regressor_head_rot = PoseRegressor(decoder_dim, 4)
+        elif reg_type =="x":
+            self.regressor_head = PoseRegressor(decoder_dim, 3)
+        else:
+            self.regressor_head = PoseRegressor(decoder_dim, 4)
 
     def forward(self, data):
 
@@ -69,13 +75,33 @@ class RelFormer(nn.Module):
         ref = self.input_proj(ref)
         z_pos = ref.flatten(start_dim=1)
         ref = ref.flatten(start_dim=2).permute(2, 0, 1)
+        pose_token = self.rel_pose_token.unsqueeze(1).repeat(1, batch_size, 1)
+        ref = torch.cat((pose_token, ref), dim=0)
 
-        z = self.transformer(query, mask, ref, mem_pos_embed[0])[0][0]
-        z = z[:, 0, :]
-        rel_x = self.regressor_head_trans(z)
-        rel_q = self.regressor_head_rot(z)
-        rel_pose = torch.cat((rel_x, rel_q), dim=1)
-        return { "z_query":z_query, "z_pos":z_pos, "z_neg":z_neg, "rel_pose":rel_pose}
+        z = self.transformer(query, ref,  mask, pos_embed, ref_pos_embed)[0][0][:, 0, :]
+        if self.reg_type == "both":
+            rel_x = self.regressor_head_trans(z)
+            rel_q = self.regressor_head_rot(z)
+            rel_pose = torch.cat((rel_x, rel_q), dim=1)
+            return { "z_query":z_query, "z_pos":z_pos, "z_neg":z_neg, "rel_pose":rel_pose}
+        else:
+            rel = self.regressor_head(z)
+            return {"z_query": z_query, "z_pos": z_pos, "z_neg": z_neg, "rel": rel}
+
+class BrRwlFormer(nn.Module):
+
+    def __init__(self, config, pretrained_path):
+        super().__init__()
+        self.relformer_x = RelFormer(config, pretrained_path, "x")
+        self.relformer_q = RelFormer(config, pretrained_path, "q")
+
+    def forward(self, data):
+        res_x = self.relformer_x(data)
+        res_q = self.relformer_q(data)
+        rel_pose = torch.cat((res_x.get("rel"), res_q.get("rel")), dim=1)
+        return {"z_query_x": res_x.get("z_query"), "z_pos_x": res_x.get("z_pos"), "z_neg_x": res_x.get("z_neg"),
+                "z_query_q": res_q.get("z_query"), "z_pos_q": res_q.get("z_pos"), "z_neg_x": res_q.get("z_neg"),
+                "rel_pose": rel_pose}
 
 class RelFormer2(nn.Module):
 
@@ -137,6 +163,7 @@ class RelFormer2(nn.Module):
 
         z_neg_x = None
         z_neg_q = None
+
         if negative is not None:
             if isinstance(negative, (list, torch.Tensor)):
                 negative = nested_tensor_from_tensor_list(negative)
