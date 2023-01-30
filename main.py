@@ -11,7 +11,7 @@ import time
 from datasets.RelPoseDataset import RelPoseDataset
 from models.pose_losses import CameraPoseLoss
 from os.path import join
-from models.relformer.RelFormer import RelFormer, RelFormer2
+from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
@@ -51,10 +51,15 @@ if __name__ == "__main__":
     device = torch.device(device_id)
 
     # relformer
-    if config.get("sep_x_q"):
+    arch = config.get("arch")
+    if config.get("relformer2"):
         model = RelFormer2(config, args.rpr_backbone_path).to(device)
-    else:
+    elif arch == "relformer":
         model = RelFormer(config, args.rpr_backbone_path).to(device)
+    elif arch == "b-relformer":
+        model = BrRwlFormer(config, args.rpr_backbone_path).to(device)
+    else:
+        raise NotImplementedError(arch)
     # Load the checkpoint if needed
     if args.checkpoint_path:
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id))
