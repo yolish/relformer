@@ -12,6 +12,7 @@ from datasets.RelPoseDataset import RelPoseDataset
 from models.pose_losses import CameraPoseLoss
 from os.path import join
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
+from models.DeltaNet import DeltaNet
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
@@ -58,6 +59,8 @@ if __name__ == "__main__":
         model = RelFormer(config, args.rpr_backbone_path).to(device)
     elif arch == "b-relformer":
         model = BrRwlFormer(config, args.rpr_backbone_path).to(device)
+    elif arch == "deltanet":
+        model = DeltaNet(config, args.rpr_backbone_path).to(device)
     else:
         raise NotImplementedError(arch)
     # Load the checkpoint if needed
