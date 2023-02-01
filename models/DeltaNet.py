@@ -42,6 +42,46 @@ class DeltaRegressor(nn.Module):
         delta = self.head(delta_z)
         return delta
 
+class Relformer(nn.Module):
+
+    def __init__(self, hidden_dim, out_dim, dim_feedforward=2048, num_heads=4, dropout=0.1,
+                 activation='gelu', num_layers=6):
+        super().__init__()
+
+        transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim,
+                                                               nhead=num_heads,
+                                                               dim_feedforward=dim_feedforward,
+                                                               dropout=dropout,
+                                                               activation=activation)
+
+        self.transformer_encoder = nn.TransformerEncoder(transformer_encoder_layer,
+                                                             num_layers=6,
+                                                             norm=nn.LayerNorm(hidden_dim))
+
+        self.ln = nn.LayerNorm(hidden_dim)
+        self.rel_pose_token = nn.Parameter(torch.zeros((1,  hidden_dim)), requires_grad=True)
+        self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, delta_img):
+        # make into a sequence and append token
+        delta_seq = delta_img.flatten(start_dim=2).permute(2,0,1)
+        batch_size = delta_img.shape[0]
+        rel_token = self.rel_pose_token.unsqueeze(1).repeat(1, batch_size, 1)
+        # S x B x D
+        delta_seq = torch.cat([rel_token, delta_seq])
+
+        # regress latent relative with transformer encoder
+        delta_z = self.ln(self.transformer_encoder(delta_seq)[0])
+        delta = self.head(delta_z)
+        return delta
+
+
 
 class DeltaNet(nn.Module):
 
@@ -56,8 +96,15 @@ class DeltaNet(nn.Module):
         self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]]*2, self.hidden_dim, kernel_size=1)
         self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]]*2, self.hidden_dim, kernel_size=1)
 
-        self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim*2, 3, 2)
-        self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 4, 1)
+        reg_type = config.get("regressor_type")
+        if reg_type == "transformer":
+            self.delta_reg_x = Relformer(self.hidden_dim, 3)
+            self.delta_reg_q = Relformer(self.hidden_dim, 4)
+        elif reg_type == "conv":
+            self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim*2, 3, 2)
+            self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 4, 1)
+        else:
+            raise NotImplementedError(reg_type)
 
         self._reset_parameters()
 
