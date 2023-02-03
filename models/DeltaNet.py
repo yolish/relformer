@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from models.transformer.TransformerEncoder import TransformerEncoder
+from models.transformer.PositionEncoder import PositionEmbeddingLearnedWithPoseToken
 
 class ConvBnReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1):
@@ -42,23 +44,14 @@ class DeltaRegressor(nn.Module):
         delta = self.head(delta_z)
         return delta
 
+
 class Relformer(nn.Module):
 
-    def __init__(self, hidden_dim, out_dim, dim_feedforward=2048, num_heads=4, dropout=0.1,
-                 activation='gelu', num_layers=6):
+    def __init__(self, hidden_dim, out_dim):
         super().__init__()
 
-        transformer_encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim,
-                                                               nhead=num_heads,
-                                                               dim_feedforward=dim_feedforward,
-                                                               dropout=dropout,
-                                                               activation=activation)
-
-        self.transformer_encoder = nn.TransformerEncoder(transformer_encoder_layer,
-                                                             num_layers=6,
-                                                             norm=nn.LayerNorm(hidden_dim))
-
-        self.ln = nn.LayerNorm(hidden_dim)
+        self.transformer_encoder = TransformerEncoder({"hidden_dim":hidden_dim})
+        self.position_encoder = PositionEmbeddingLearnedWithPoseToken(hidden_dim//2)
         self.rel_pose_token = nn.Parameter(torch.zeros((1,  hidden_dim)), requires_grad=True)
         self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
         self._reset_parameters()
@@ -76,12 +69,15 @@ class Relformer(nn.Module):
         # S x B x D
         delta_seq = torch.cat([rel_token, delta_seq])
 
+        # prepare position encoding
+        token_posisition_encoding, activation_posistion_encoding = self.position_encoder(delta_img)
+        position_encoding = torch.cat([token_posisition_encoding.unsqueeze(2).permute(2, 0, 1),
+                               activation_posistion_encoding.flatten(2).permute(2, 0, 1)])
+
         # regress latent relative with transformer encoder
-        delta_z = self.ln(self.transformer_encoder(delta_seq)[0])
+        delta_z = self.transformer_encoder(delta_seq, position_encoding)[:, 0, :]
         delta = self.head(delta_z)
         return delta
-
-
 
 class DeltaNet(nn.Module):
 
@@ -109,7 +105,14 @@ class DeltaNet(nn.Module):
         self._reset_parameters()
 
         # load backbone after param reset
-        self.backbone = torch.load(backbone_path)
+        self.double_backbone = config.get("double_backbone")
+        if self.double_backbone:
+            self.backbone_x = torch.load(backbone_path)
+            self.backbone_q = torch.load(backbone_path)
+        else:
+            self.backbone = torch.load(backbone_path)
+
+
 
     def _reset_parameters(self):
         for p in self.parameters():
@@ -121,13 +124,23 @@ class DeltaNet(nn.Module):
         query = data.get('query')
         ref = data.get('ref')
 
-        query_endpoints = self.backbone.extract_endpoints(query)
-        ref_endpoints = self.backbone.extract_endpoints(ref)
+        if self.double_backbone:
+            query_endpoints_x = self.backbone_x.extract_endpoints(query)[self.reductions[0]]
+            ref_endpoints_x = self.backbone_x.extract_endpoints(ref)[self.reductions[0]]
+            query_endpoints_q = self.backbone_q.extract_endpoints(query)[self.reductions[1]]
+            ref_endpoints_q = self.backbone_q.extract_endpoints(ref)[self.reductions[1]]
+        else:
+            query_endpoints = self.backbone.extract_endpoints(query)
+            ref_endpoints = self.backbone.extract_endpoints(ref)
+            query_endpoints_x = query_endpoints[self.reductions[0]]
+            ref_endpoints_x = ref_endpoints[self.reductions[0]]
+            query_endpoints_q = query_endpoints[self.reductions[1]]
+            ref_endpoints_q = ref_endpoints[self.reductions[1]]
 
         # delta_img_x is N x 2D x H_R x W_R -- N X 224 x 14 x 14
-        delta_img_x = torch.cat((query_endpoints[self.reductions[0]], ref_endpoints[self.reductions[0]]), dim=1)
+        delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
         # delta_img_q is N x 2D x H_R x W_R  -- N x 80 x 28 x 28
-        delta_img_q = torch.cat((query_endpoints[self.reductions[1]], ref_endpoints[self.reductions[1]]), dim=1)
+        delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
 
         delta_img_x = self.proj_x(delta_img_x) #N X hidden_dim x 14 x 14
         delta_img_q = self.proj_q(delta_img_q) # #N X hidden_dim x 28 x 28
