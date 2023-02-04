@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.transformer.TransformerEncoder import TransformerEncoder
 from models.transformer.PositionEncoder import PositionEmbeddingLearnedWithPoseToken
+import torchvision
 
 class ConvBnReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1):
@@ -88,9 +89,14 @@ class DeltaNet(nn.Module):
         self.reductions = config.get("reduction")
         self.delta_img_dim = config.get("delta_img_dim")
         self.hidden_dim = config.get("hidden_dim")
-
-        self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]]*2, self.hidden_dim, kernel_size=1)
-        self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]]*2, self.hidden_dim, kernel_size=1)
+        self.proj_before_concat = config.get("proj_before_concat")
+        if self.proj_before_concat:
+            self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]], self.hidden_dim, kernel_size=1)
+            self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]], self.hidden_dim, kernel_size=1)
+            self.hidden_dim = self.hidden_dim * 2
+        else:
+            self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]] * 2, self.hidden_dim, kernel_size=1)
+            self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]] * 2, self.hidden_dim, kernel_size=1)
 
         reg_type = config.get("regressor_type")
         if reg_type == "transformer":
@@ -112,13 +118,10 @@ class DeltaNet(nn.Module):
         else:
             self.backbone = torch.load(backbone_path)
 
-
-
     def _reset_parameters(self):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
-
 
     def forward(self, data):
         query = data.get('query')
@@ -137,13 +140,21 @@ class DeltaNet(nn.Module):
             query_endpoints_q = query_endpoints[self.reductions[1]]
             ref_endpoints_q = ref_endpoints[self.reductions[1]]
 
-        # delta_img_x is N x 2D x H_R x W_R -- N X 224 x 14 x 14
-        delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
-        # delta_img_q is N x 2D x H_R x W_R  -- N x 80 x 28 x 28
-        delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
+        if self.proj_before_concat:
+            query_endpoints_x = self.proj_x(query_endpoints_x)  # N X hidden_dim x H_R x W_R
+            ref_endpoints_x = self.proj_x(ref_endpoints_x)  # N X hidden_dim x H_R x W_R
+            delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
+            query_endpoints_q = self.proj_q(query_endpoints_q)  # N X hidden_dim x H_R x W_R
+            ref_endpoints_q = self.proj_q(ref_endpoints_q)  # N X hidden_dim x H_R x W_R
+            delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
+        else:
+            # delta_img_x is N x 2D x H_R x W_R
+            delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
+            # delta_img_q is N x 2D x H_R x W_R
+            delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
 
-        delta_img_x = self.proj_x(delta_img_x) #N X hidden_dim x 14 x 14
-        delta_img_q = self.proj_q(delta_img_q) # #N X hidden_dim x 28 x 28
+            delta_img_x = self.proj_x(delta_img_x) #N X hidden_dim x H_R x W_R
+            delta_img_q = self.proj_q(delta_img_q) # #N X hidden_dim x H_R x W_R
 
         delta_x = self.delta_reg_x(delta_img_x)
         delta_q = self.delta_reg_q(delta_img_q)
@@ -151,5 +162,86 @@ class DeltaNet(nn.Module):
         return {"rel_pose": delta_p }
 
 
+class DeltaNetEquiv(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        backbone_type = config.get("backbone_type")
+        if backbone_type == "resnet50":
+            backbone_fn = torchvision.models.resnet50
+            self.hidden_dim = 2048
+        elif backbone_type == "resnet34":
+            backbone_fn = torchvision.models.resnet34
+            self.hidden_dim = 512
+        else:
+            raise NotImplementedError(backbone_type)
+
+        self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 3, 2)
+        self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 4, 1)
+        self.proj_x = nn.Conv2d(self.hidden_dim * 2, self.hidden_dim, kernel_size=1)
+        self.proj_q = nn.Conv2d(self.hidden_dim * 2, self.hidden_dim, kernel_size=1)
+
+        self._reset_parameters()
+        backbone = backbone_fn(pretrained=True)
+        self.backbone = nn.Sequential(*(list(backbone.children())[:-2]))
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, data):
+        query = data.get('query')
+        ref = data.get('ref')
+        query_endpoints = self.backbone(query) # n x 512 x 7 x 7 for resnet34
+        ref_endpoints = self.backbone(ref)
+        query_endpoints_x = query_endpoints
+        ref_endpoints_x = ref_endpoints
+        query_endpoints_q = query_endpoints
+        ref_endpoints_q = ref_endpoints
+
+        # delta_img_x is N x 2D x H_R x W_R
+        delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
+        # delta_img_q is N x 2D x H_R x W_R
+        delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
+
+        delta_img_x = self.proj_x(delta_img_x)  # N X hidden_dim x H_R x W_R
+        delta_img_q = self.proj_q(delta_img_q)  # #N X hidden_dim x H_R x W_R
+
+        delta_x = self.delta_reg_x(delta_img_x)
+        delta_q = self.delta_reg_q(delta_img_q)
+        delta_p = torch.cat((delta_x, delta_q), dim=1)
+        return {"rel_pose": delta_p}
+
+
+class BaselineRPR(nn.Module):
+    # efficientnet + avg. pooling - "traditional RPR"
+    def __init__(self, backbone_path):
+        super().__init__()
+
+        hidden_dim = 1280*2
+        self.head_x = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 3))
+        self.head_q = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 4))
+
+        self._reset_parameters()
+        self.backbone = torch.load(backbone_path)
+        self.avg_pooling_2d = nn.AdaptiveAvgPool2d(1)
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, data):
+        query = self.backbone.extract_features(data.get('query'))
+        ref = self.backbone.extract_features(data.get('ref'))
+
+        z_query = self.avg_pooling_2d(query).flatten(start_dim=1)
+        z_ref = self.avg_pooling_2d(ref).flatten(start_dim=1)
+
+        z = torch.cat((z_query, z_ref), dim=1)
+        delta_x = self.head_x(z)
+        delta_q = self.head_q(z)
+        delta_p = torch.cat((delta_x, delta_q), dim=1)
+        return {"rel_pose": delta_p}
 
 
