@@ -2,8 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from models.transformer.TransformerEncoder import TransformerEncoder
-from models.transformer.PositionEncoder import PositionEmbeddingLearnedWithPoseToken
+from models.transformer.PositionEncoder import PositionEmbeddingLearnedWithPoseToken, PositionEmbeddingLearned
+from models.transformer.Transformer import Transformer
 import torchvision
+
 
 class ConvBnReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1):
@@ -95,8 +97,17 @@ class DeltaNet(nn.Module):
             self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]], self.hidden_dim, kernel_size=1)
             self.hidden_dim = self.hidden_dim * 2
         else:
-            self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]] * 2, self.hidden_dim, kernel_size=1)
-            self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]] * 2, self.hidden_dim, kernel_size=1)
+            self.proj_with_transformer = config.get("proj_with_transformer")
+            if self.proj_with_transformer:
+                self.tr_x = Transformer({"hidden_dim":reduction_map[self.reductions[0]]})
+                self.tr_q = Transformer({"hidden_dim": reduction_map[self.reductions[1]]})
+                self.position_encoder_x = PositionEmbeddingLearned(reduction_map[self.reductions[0]] // 2)
+                self.position_encoder_q = PositionEmbeddingLearned(reduction_map[self.reductions[1]] // 2)
+                self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]], self.hidden_dim, kernel_size=1)
+                self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]], self.hidden_dim, kernel_size=1)
+            else:
+                self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]] * 2, self.hidden_dim, kernel_size=1)
+                self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]] * 2, self.hidden_dim, kernel_size=1)
 
         reg_type = config.get("regressor_type")
         if reg_type == "transformer":
@@ -148,10 +159,27 @@ class DeltaNet(nn.Module):
             ref_endpoints_q = self.proj_q(ref_endpoints_q)  # N X hidden_dim x H_R x W_R
             delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
         else:
-            # delta_img_x is N x 2D x H_R x W_R
-            delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
-            # delta_img_q is N x 2D x H_R x W_R
-            delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
+            if self.proj_with_transformer:
+                query_pos_encdoing_x = self.position_encoder_x(query_endpoints_x).flatten(start_dim=2).permute(2, 0, 1)
+                query_pos_encdoing_q = self.position_encoder_q(query_endpoints_q).flatten(start_dim=2).permute(2, 0, 1)
+                ref_pos_encdoing_x = self.position_encoder_x(ref_endpoints_x).flatten(start_dim=2).permute(2, 0, 1)
+                ref_pos_encdoing_q = self.position_encoder_q(ref_endpoints_q).flatten(start_dim=2).permute(2, 0, 1)
+                query_seq_x = query_endpoints_x.flatten(start_dim=2).permute(2, 0, 1)
+                query_seq_q = query_endpoints_q.flatten(start_dim=2).permute(2, 0, 1)
+                ref_seq_x = ref_endpoints_x.flatten(start_dim=2).permute(2, 0, 1)
+                ref_seq_q = ref_endpoints_q.flatten(start_dim=2).permute(2, 0, 1)
+
+                # replace concat with transformer
+                b, c, h, w = query_endpoints_x.shape
+                delta_img_x = self.tr_x(query_seq_x, ref_seq_x, query_pos_encdoing_x, ref_pos_encdoing_x).transpose(1,2).reshape((b,c,h,w))
+                b, c, h, w = query_endpoints_q.shape
+                delta_img_q = self.tr_q(query_seq_q, ref_seq_q, query_pos_encdoing_q, ref_pos_encdoing_q).transpose(1,2).reshape((b,c,h,w))
+
+            else:
+                # delta_img_x is N x 2D x H_R x W_R
+                delta_img_x = torch.cat((query_endpoints_x, ref_endpoints_x), dim=1)
+                # delta_img_q is N x 2D x H_R x W_R
+                delta_img_q = torch.cat((query_endpoints_q, ref_endpoints_q), dim=1)
 
             delta_img_x = self.proj_x(delta_img_x) #N X hidden_dim x H_R x W_R
             delta_img_q = self.proj_q(delta_img_q) # #N X hidden_dim x H_R x W_R
