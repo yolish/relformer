@@ -92,6 +92,7 @@ class DeltaNet(nn.Module):
         self.delta_img_dim = config.get("delta_img_dim")
         self.hidden_dim = config.get("hidden_dim")
         self.proj_before_concat = config.get("proj_before_concat")
+        self.is_rpmg = config.get("is_rpmg")
         if self.proj_before_concat:
             self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]], self.hidden_dim, kernel_size=1)
             self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]], self.hidden_dim, kernel_size=1)
@@ -110,12 +111,15 @@ class DeltaNet(nn.Module):
                 self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]] * 2, self.hidden_dim, kernel_size=1)
 
         reg_type = config.get("regressor_type")
+        q_dim = 4
+        if self.is_rpmg:
+            q_dim = 6
         if reg_type == "transformer":
             self.delta_reg_x = Relformer(self.hidden_dim, 3)
-            self.delta_reg_q = Relformer(self.hidden_dim, 4)
+            self.delta_reg_q = Relformer(self.hidden_dim, q_dim)
         elif reg_type == "conv":
             self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim*2, 3, 2)
-            self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 4, 1)
+            self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, q_dim, 1)
         else:
             raise NotImplementedError(reg_type)
 
@@ -187,7 +191,7 @@ class DeltaNet(nn.Module):
         delta_x = self.delta_reg_x(delta_img_x)
         delta_q = self.delta_reg_q(delta_img_q)
         delta_p = torch.cat((delta_x, delta_q), dim=1)
-        return {"rel_pose": delta_p }
+        return {"rel_pose": delta_p}
 
 
 class DeltaNetEquiv(nn.Module):

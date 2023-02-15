@@ -54,7 +54,8 @@ def read_pairs_file(dataset_path, labels_file):
         img_paths.append([join(dataset_path, path) for path in df['img_path_{}'.format(suffix)].values])
         if "scene_{}".format(suffix) in df.keys():
             scenes.append(df['scene_{}'.format(suffix)].values)
-            scene_ids.append( df['scene_id_{}'.format(suffix)].values)
+            #scene_ids.append( df['scene_id_{}'.format(suffix)].values)
+            scene_ids.append([])
         else:
             scenes.append([])
             scene_ids.append([])
@@ -62,19 +63,33 @@ def read_pairs_file(dataset_path, labels_file):
         position_key = "x"
         if "x1_a" not in df.keys():
             position_key = "t"
-        poses[:, 0] = df['{}1_{}'.format(position_key, suffix)].values
-        poses[:, 1] = df['{}2_{}'.format(position_key, suffix)].values
-        poses[:, 2] = df['{}3_{}'.format(position_key, suffix)].values
-        poses[:, 3] = df['q1_{}'.format(suffix)].values
-        poses[:, 4] = df['q2_{}'.format(suffix)].values
-        poses[:, 5] = df['q3_{}'.format(suffix)].values
-        poses[:, 6] = df['q4_{}'.format(suffix)].values
+        if "x1_a" not in df.keys() and "t1_a" not in df.keys():
+            poses = np.zeros((n, 7))
+        else:
+            poses[:, 0] = df['{}1_{}'.format(position_key, suffix)].values
+            poses[:, 1] = df['{}2_{}'.format(position_key, suffix)].values
+            poses[:, 2] = df['{}3_{}'.format(position_key, suffix)].values
+            poses[:, 3] = df['q1_{}'.format(suffix)].values
+            poses[:, 4] = df['q2_{}'.format(suffix)].values
+            poses[:, 5] = df['q3_{}'.format(suffix)].values
+            poses[:, 6] = df['q4_{}'.format(suffix)].values
         all_poses.append(poses)
-    img_paths1, img_paths2 = img_paths
+    #img_paths1, img_paths2 = img_paths
     scenes1, scenes2 = scenes
     scene_ids1, scene_ids2 = scene_ids
     poses1, poses2 = all_poses
     rel_poses = np.zeros((n, 7))
+
+    img_paths1 = []
+    img_paths2 = []
+    for i in range(len(df['img_path_a'])):
+        if scenes1[i] in df['img_path_a'][i]:
+            img_paths1.append(join(dataset_path, df['img_path_a'][i]))
+            img_paths2.append(join(dataset_path, df['img_path_b'][i]))
+        else:
+            img_paths1.append(join(dataset_path, scenes1[i] + df['img_path_a'][i]))
+            img_paths2.append(join(dataset_path, scenes2[i] + df['img_path_b'][i]))
+
     suffix = "ab"
     if "x1_ab" in df.keys():
         rel_poses[:, 0] = df['x1_{}'.format(suffix)].values
