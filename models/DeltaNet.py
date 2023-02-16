@@ -5,7 +5,7 @@ from models.transformer.TransformerEncoder import TransformerEncoder
 from models.transformer.PositionEncoder import PositionEmbeddingLearnedWithPoseToken, PositionEmbeddingLearned
 from models.transformer.Transformer import Transformer
 import torchvision
-
+from util.qcqp_layers import convert_Avec_to_A
 
 class ConvBnReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, pad=1):
@@ -50,13 +50,15 @@ class DeltaRegressor(nn.Module):
 
 class Relformer(nn.Module):
 
-    def __init__(self, hidden_dim, out_dim):
+    def __init__(self, hidden_dim, out_dim, head_dim=None, ):
         super().__init__()
 
         self.transformer_encoder = TransformerEncoder({"hidden_dim":hidden_dim})
+        if head_dim is None:
+            head_dim = hidden_dim
         self.position_encoder = PositionEmbeddingLearnedWithPoseToken(hidden_dim//2)
         self.rel_pose_token = nn.Parameter(torch.zeros((1,  hidden_dim)), requires_grad=True)
-        self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
+        self.head = nn.Sequential(nn.Linear(head_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -64,7 +66,7 @@ class Relformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, delta_img):
+    def forward(self, delta_img, prior_z=None, return_delta_z=False):
         # make into a sequence and append token
         delta_seq = delta_img.flatten(start_dim=2).permute(2,0,1)
         batch_size = delta_img.shape[0]
@@ -79,8 +81,24 @@ class Relformer(nn.Module):
 
         # regress latent relative with transformer encoder
         delta_z = self.transformer_encoder(delta_seq, position_encoding)[:, 0, :]
+        if prior_z is not None:
+            delta_z = torch.cat((delta_z, prior_z), dim=1)
+
         delta = self.head(delta_z)
-        return delta
+        if return_delta_z:
+            return delta, delta_z
+        else:
+            return delta
+
+
+##### Start: code from - https://github.com/utiasSTARS/bingham-rotation-learning
+def A_vec_to_quat(A_vec):
+    A = convert_Avec_to_A(A_vec)  # Bx10 -> Bx4x4
+    _, evs = torch.symeig(A, eigenvectors=True)
+    q = evs[:, :, 0].squeeze()
+    return q
+### End
+
 
 class DeltaNet(nn.Module):
 
@@ -92,7 +110,13 @@ class DeltaNet(nn.Module):
         self.delta_img_dim = config.get("delta_img_dim")
         self.hidden_dim = config.get("hidden_dim")
         self.proj_before_concat = config.get("proj_before_concat")
-        self.is_rpmg = config.get("is_rpmg")
+        rot_dim = config.get("rot_dim")
+        if config.get("rot_repr_type") == '10d':
+            rot_dim = 10
+            self.convert_to_quat = True
+        else:
+            self.convert_to_quat = False
+
         if self.proj_before_concat:
             self.proj_x = nn.Conv2d(reduction_map[self.reductions[0]], self.hidden_dim, kernel_size=1)
             self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]], self.hidden_dim, kernel_size=1)
@@ -111,15 +135,17 @@ class DeltaNet(nn.Module):
                 self.proj_q = nn.Conv2d(reduction_map[self.reductions[1]] * 2, self.hidden_dim, kernel_size=1)
 
         reg_type = config.get("regressor_type")
-        q_dim = 4
-        if self.is_rpmg:
-            q_dim = 6
+        self.estimate_position_with_prior = config.get("position_with_prior")
         if reg_type == "transformer":
-            self.delta_reg_x = Relformer(self.hidden_dim, 3)
-            self.delta_reg_q = Relformer(self.hidden_dim, q_dim)
+            if self.estimate_position_with_prior:
+                head_dim = self.hidden_dim*2
+            else:
+                head_dim = self.hidden_dim
+            self.delta_reg_x = Relformer(self.hidden_dim, 3, head_dim)
+            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, self.hidden_dim)
         elif reg_type == "conv":
-            self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim*2, 3, 2)
-            self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, q_dim, 1)
+            self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 3, 2)
+            self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, rot_dim, 1)
         else:
             raise NotImplementedError(reg_type)
 
@@ -188,8 +214,14 @@ class DeltaNet(nn.Module):
             delta_img_x = self.proj_x(delta_img_x) #N X hidden_dim x H_R x W_R
             delta_img_q = self.proj_q(delta_img_q) # #N X hidden_dim x H_R x W_R
 
-        delta_x = self.delta_reg_x(delta_img_x)
-        delta_q = self.delta_reg_q(delta_img_q)
+        if self.estimate_position_with_prior:
+            delta_q, delta_z = self.delta_reg_q(delta_img_q, return_delta_z=True)
+            delta_x = self.delta_reg_x(delta_img_x, prior_z=delta_z)
+        else:
+            delta_x = self.delta_reg_x(delta_img_x)
+            delta_q = self.delta_reg_q(delta_img_q)
+        if self.convert_to_quat:
+            delta_q = A_vec_to_quat(delta_q)
         delta_p = torch.cat((delta_x, delta_q), dim=1)
         return {"rel_pose": delta_p}
 
