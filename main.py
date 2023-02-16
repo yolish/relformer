@@ -10,7 +10,7 @@ from util import utils
 import time
 from datasets.RelPoseDataset import RelPoseDataset
 from datasets.KNNCameraPoseDataset import KNNCameraPoseDataset
-from models.pose_losses import CameraPoseLoss, CameraPoseLossRpmg
+from models.pose_losses import CameraPoseLoss
 from os.path import join
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
 from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv
@@ -69,7 +69,21 @@ if __name__ == "__main__":
     np.random.seed(numpy_seed)
     device = torch.device(device_id)
 
-    # relformer
+    rot_repr_type = config.get('rot_repr_type')
+    if rot_repr_type is not None and rot_repr_type != "q":
+        if rot_repr_type == '6d':
+            config['rot_dim'] = 6
+        elif rot_repr_type == '9d':
+            config['rot_dim'] = 9
+        elif rot_repr_type == '10d':
+            config['rot_dim'] = 4 # we output quaternions
+        else:
+            raise NotImplementedError(rot_repr_type)
+    else:
+        config["rot_dim"] = 4
+        config["rot_repr_type"] = 'q'
+        rot_repr_type = 'q'
+
     arch = config.get("arch")
     if arch == "relformer2":
         model = RelFormer2(config, args.rpr_backbone_path).to(device)
@@ -90,19 +104,14 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id))
         logging.info("Initializing from checkpoint: {}".format(args.checkpoint_path))
 
-    is_rpmg = config.get('is_rpmg')
     if args.mode == 'train':
         # Set to train mode
         model.train()
 
         # Set the loss
-        if is_rpmg:
-            pose_loss = CameraPoseLossRpmg(config).to(device)
-        else:
-            pose_loss = CameraPoseLoss(config).to(device)
+        pose_loss = CameraPoseLoss(config).to(device)
 
-        train_w_triplet_loss = False # read from config
-        #TODO Triplet loss
+        train_w_triplet_loss = False # read from config #TODO Triplet loss
 
         # Set the optimizer and scheduler
         params = list(model.parameters()) + list(pose_loss.parameters())
@@ -116,7 +125,8 @@ if __name__ == "__main__":
 
         transform = utils.train_transforms.get('baseline')
         if args.is_knn:
-            train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file, args.refs_file, args.knn_file, transform, args.knn_len)
+            train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file,
+                                                 args.refs_file, args.knn_file, transform, args.knn_len)
         else:
             train_dataset = RelPoseDataset(args.dataset_path, args.labels_file, transform)
 
@@ -146,12 +156,17 @@ if __name__ == "__main__":
                 gt_rel_poses = minibatch['rel_pose'].to(dtype=torch.float32)
                 gt_rel_poses_orig = gt_rel_poses
                 batch_size = gt_rel_poses.shape[0]
-                if is_rpmg:
-                    quaternion = gt_rel_poses[:, 3:]
-                    rpmg = utils.compute_rotation_matrix_from_quaternion(quaternion)
-                    rpmg = rpmg[:,:,:-1].transpose(1,2).reshape(batch_size, -1)
-                    #rpmg = rpmg[:, :6]
-                    gt_rel_poses = torch.cat((gt_rel_poses[:, :3], rpmg), dim=1)
+                if rot_repr_type != 'q' and rot_repr_type != '10d':
+                    q = gt_rel_poses[:, 3:]
+                    rot_mat = utils.compute_rotation_matrix_from_quaternion(q)
+                    if rot_repr_type == '6d':
+                        # take first two columns and flatten
+                        rot_repr = rot_mat[:,:,:-1].transpose(1,2).reshape(batch_size, -1)
+                    elif rot_repr_type == '9d':
+                        # GT is the rot matrix
+                        rot_repr = rot_mat.transpose(1,2).reshape(batch_size, -1)
+
+                    gt_rel_poses = torch.cat((gt_rel_poses[:, :3], rot_repr), dim=1)
                 n_samples += batch_size
                 n_total_samples += batch_size
 
@@ -169,6 +184,11 @@ if __name__ == "__main__":
                     #TODO compute triplet_loss
 
                 est_rel_poses = res.get("rel_pose")
+                if rot_repr_type == '9d':
+                    # apply SVD orthogonalization to get the rotation matrix
+                    est_rel_rot = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+                    est_rel_rot = est_rel_rot.transpose(1,2).reshape(batch_size, -1)
+                    est_rel_poses = torch.cat((est_rel_poses[:, :3], est_rel_rot), dim=1)
 
                 criterion = pose_loss(est_rel_poses, gt_rel_poses)
                 # Collect for recoding and plotting
@@ -182,12 +202,15 @@ if __name__ == "__main__":
 
                 # Record loss and performance on train set
                 if batch_idx % n_freq_print == 0:
-                    if is_rpmg:
-                        rpmg = est_rel_poses[:, 3:]
-                        #rpmg = rpmg.view(batch_size, 2, 3)
-                        rpmg = utils.compute_rotation_matrix_from_ortho6d(rpmg)
-                        quaternions = utils.compute_quaternions_from_rotation_matrices(rpmg)
-                        est_rel_poses = torch.cat((est_rel_poses[:,:3], quaternions), dim=1)
+                    if rot_repr_type != 'q' and rot_repr_type != '10d':
+                        if rot_repr_type == '6d':
+                            rot_repr = est_rel_poses[:, 3:]
+                            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                        elif rot_repr_type == '9d':
+                            rot_repr = est_rel_poses[:, 3:].reshape(batch_size, 3, 3).transpose(1,2)
+                        q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                        est_rel_poses = torch.cat((est_rel_poses[:,:3], q), dim=1)
+
                     posit_err, orient_err = utils.pose_err(est_rel_poses.detach(), gt_rel_poses_orig.detach())
                     msg = "[Batch-{}/Epoch-{}] running relative camera pose loss: {:.3f}, camera pose error: {:.2f}[m], {:.2f}[deg]".format(
                                                                         batch_idx+1, epoch+1, (running_loss/n_freq_print),
@@ -241,12 +264,15 @@ if __name__ == "__main__":
                 torch.cuda.synchronize()
                 tn = time.time()
 
-                if is_rpmg:
-                    rpmg = est_rel_pose[:, 3:]
-                    # rpmg = rpmg.view(batch_size, 2, 3)
-                    rpmg = utils.compute_rotation_matrix_from_ortho6d(rpmg)
-                    quaternions = utils.compute_quaternions_from_rotation_matrices(rpmg)
-                    est_rel_pose = torch.cat((est_rel_pose[:, :3], quaternions), dim=1)
+                if rot_repr_type != 'q' and rot_repr_type != '10d':
+                    if rot_repr_type == '6d':
+                        rot_repr = est_rel_poses[:, 3:]
+                        rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                    elif rot_repr_type == '9d':
+                        # apply SVD orthogonalization to get the rotation matrix
+                        rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+                    quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                    est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
 
                 # Evaluate error
                 posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
@@ -255,7 +281,6 @@ if __name__ == "__main__":
                 pose_stats[i, 0] = posit_err.item()
                 pose_stats[i, 1] = orient_err.item()
                 pose_stats[i, 2] = (tn - t0)*1000
-
 
                 logging.info("Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms]".format(
                     pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2]))

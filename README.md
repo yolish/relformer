@@ -24,9 +24,8 @@ conda activate loc
 ### Usage and Pretrained Models 
 Training 
 ```
-python main.py train /media/yoli/WDC-2.0-TB-Hard-/7Scenes models/backbones/efficient-net-b0.pth datasets/7Scenes/7scenes_training_pairs.csv 7scenes_config.json
+python main.py --mode train --dataset /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --labels_file datasets/7Scenes/7scenes_training_pairs.csv --config_file 7scenes_config_deltanet_transformer_encoder_10d.json --gpu 2
 ```
-
 Testing
 ```
 python main.py test /media/yoli/WDC-2.0-TB-Hard-/7Scenes models/backbones/efficient-net-b0.pth datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv 7scenes_config.json --checkpoint_path out/run_24_01_23_10_03_relformer_checkpoint-10.pth
