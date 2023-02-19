@@ -13,7 +13,7 @@ from datasets.KNNCameraPoseDataset import KNNCameraPoseDataset
 from models.pose_losses import CameraPoseLoss
 from os.path import join
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
-from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv
+from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet
 import sys
 
 if __name__ == "__main__":
@@ -97,6 +97,8 @@ if __name__ == "__main__":
         model = BaselineRPR(args.rpr_backbone_path).to(device)
     elif arch == "deltanetequiv":
         model = DeltaNetEquiv(config).to(device)
+    elif arch == "tdeltanet":
+        model = TDeltaNet(config, args.rpr_backbone_path).to(device)
     else:
         raise NotImplementedError(arch)
     # Load the checkpoint if needed
