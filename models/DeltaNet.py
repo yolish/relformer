@@ -392,3 +392,92 @@ class TDeltaNet(nn.Module):
 
         return {"rel_pose": delta_p}
 
+
+class MSDeltaNet(nn.Module):
+
+    def __init__(self, config, backbone_path):
+        super().__init__()
+
+        reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320, "baseline":1280}
+        self.reduction = config.get("reduction")
+        self.hidden_dim = config.get("hidden_dim")
+        self.type = config.get("type")
+        if self.type == "rotation":
+            rot_dim = config.get("rot_dim")
+            if config.get("rot_repr_type") == '10d':
+                rot_dim = 10
+                self.convert_to_quat = True
+            else:
+                self.convert_to_quat = False
+            out_dim = rot_dim
+        else:
+            out_dim = 3
+        self.ms_proj = nn.ModuleDict()
+        self.ms_delta_reg = nn.ModuleDict()
+        for reduction in self.reduction:
+            if reduction == "baseline":
+                hidden_dim = reduction_map[reduction] * 2
+                self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
+                self.avg_pooling_2d = nn.AdaptiveAvgPool2d(1)
+            else:
+                self.ms_proj[reduction] = nn.Conv2d(reduction_map[reduction] * 2,
+                                                 self.hidden_dim, kernel_size=1)
+                reg_type = config.get("regressor_type")
+                if reg_type == "transformer":
+                    delta_reg = Relformer(self.hidden_dim, out_dim, self.hidden_dim)
+                elif reg_type == "conv":
+                    delta_reg = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, out_dim, 1)
+                else:
+                    raise NotImplementedError(reg_type)
+                self.ms_delta_reg[reduction] = delta_reg
+
+        self._reset_parameters()
+
+        # load backbone after param reset
+        self.backbone = torch.load(backbone_path)
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, data):
+        query = data.get('query')
+        ref = data.get('ref')
+        ret_val = {}
+        for reduction in self.reduction:
+            if reduction == "baseline":
+
+                query = self.backbone.extract_features(data.get('query'))
+                ref = self.backbone.extract_features(data.get('ref'))
+
+                z_query = self.avg_pooling_2d(query).flatten(start_dim=1)
+                z_ref = self.avg_pooling_2d(ref).flatten(start_dim=1)
+
+                z = torch.cat((z_query, z_ref), dim=1)
+                delta = self.head(z)
+            else:
+                query_endpoints = self.backbone.extract_endpoints(query)
+                ref_endpoints = self.backbone.extract_endpoints(ref)
+                query_endpoints = query_endpoints[reduction]
+                ref_endpoints = ref_endpoints[reduction]
+
+                # delta_img_x is N x 2D x H_R x W_R
+                delta_img = torch.cat((query_endpoints, ref_endpoints), dim=1)
+                delta_img = self.ms_proj[reduction](delta_img) #N X hidden_dim x H_R x W_R
+                delta = self.ms_delta_reg[reduction](delta_img)
+
+            if self.type == "rotation":
+                delta_q = delta
+                if self.convert_to_quat:
+                    delta_q = A_vec_to_quat(delta_q)
+                dummy_delta_x = torch.zeros((delta_q.shape[0], 3)).to(delta_q.device)
+                delta_p = torch.cat((dummy_delta_x, delta_q), dim=1)
+            else:
+                delta_x = delta
+                dummy_delta_q = torch.zeros((delta_x.shape[0], 4)).to(delta_x.device)
+                delta_p = torch.cat((delta_x, dummy_delta_q), dim=1)
+            ret_val[reduction] = delta_p
+
+        return {"rel_pose": ret_val}
+
