@@ -13,8 +13,22 @@ from datasets.KNNCameraPoseDataset import KNNCameraPoseDataset
 from models.pose_losses import CameraPoseLoss
 from os.path import join
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
-from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet
+from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSDeltaNet
 import sys
+
+
+def convert_to_quat(rot_repr_type, est_rel_poses):
+    if rot_repr_type != 'q' and rot_repr_type != '10d':
+        if rot_repr_type == '6d':
+            rot_repr = est_rel_poses[:, 3:]
+            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+        elif rot_repr_type == '9d':
+            # apply SVD orthogonalization to get the rotation matrix
+            rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+        quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+        est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
+    return est_rel_poses
+
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
@@ -85,6 +99,7 @@ if __name__ == "__main__":
         rot_repr_type = 'q'
 
     arch = config.get("arch")
+    is_multi_scale = False
     if arch == "relformer2":
         model = RelFormer2(config, args.rpr_backbone_path).to(device)
     elif arch == "relformer":
@@ -99,6 +114,10 @@ if __name__ == "__main__":
         model = DeltaNetEquiv(config).to(device)
     elif arch == "tdeltanet":
         model = TDeltaNet(config, args.rpr_backbone_path).to(device)
+    elif arch == "msdeltanet":
+        model = MSDeltaNet(config, args.rpr_backbone_path).to(device)
+        is_multi_scale = True
+        assert rot_repr_type == '6d' or rot_repr_type == 'q'
     else:
         raise NotImplementedError(arch)
     # Load the checkpoint if needed
@@ -106,6 +125,8 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id))
         logging.info("Initializing from checkpoint: {}".format(args.checkpoint_path))
 
+    eval_reductions = config.get("eval_reduction")
+    train_reductions = config.get("reduction")
     if args.mode == 'train':
         # Set to train mode
         model.train()
@@ -178,21 +199,21 @@ if __name__ == "__main__":
                 optim.zero_grad()
                 res = model(minibatch)
 
-                # TODO triplet loss
-                if train_w_triplet_loss:
-                    z_query = res.get("z_query")
-                    z_neg = res.get("z_pos")
-                    z_pos = res.get("z_pos")
-                    #TODO compute triplet_loss
-
                 est_rel_poses = res.get("rel_pose")
-                if rot_repr_type == '9d':
-                    # apply SVD orthogonalization to get the rotation matrix
-                    est_rel_rot = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
-                    est_rel_rot = est_rel_rot.transpose(1,2).reshape(batch_size, -1)
-                    est_rel_poses = torch.cat((est_rel_poses[:, :3], est_rel_rot), dim=1)
+                if is_multi_scale:
+                    criterion = 0.0
+                    for reduction in train_reductions:
+                        criterion += pose_loss(est_rel_poses[reduction], gt_rel_poses)
+                    criterion /= len(train_reductions)
+                else:
+                    if rot_repr_type == '9d':
+                        # not supported for multi-scale
+                        # apply SVD orthogonalization to get the rotation matrix
+                        est_rel_rot = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+                        est_rel_rot = est_rel_rot.transpose(1,2).reshape(batch_size, -1)
+                        est_rel_poses = torch.cat((est_rel_poses[:, :3], est_rel_rot), dim=1)
 
-                criterion = pose_loss(est_rel_poses, gt_rel_poses)
+                    criterion = pose_loss(est_rel_poses, gt_rel_poses)
                 # Collect for recoding and plotting
                 running_loss += criterion.item()
                 loss_vals.append(criterion.item())
@@ -204,6 +225,8 @@ if __name__ == "__main__":
 
                 # Record loss and performance on train set
                 if batch_idx % n_freq_print == 0:
+                    if is_multi_scale:
+                        est_rel_poses = est_rel_poses[train_reductions[0]]  # for printing purposes
                     if rot_repr_type != 'q' and rot_repr_type != '10d':
                         if rot_repr_type == '6d':
                             rot_repr = est_rel_poses[:, 3:]
@@ -266,18 +289,21 @@ if __name__ == "__main__":
                 torch.cuda.synchronize()
                 tn = time.time()
 
-                if rot_repr_type != 'q' and rot_repr_type != '10d':
-                    if rot_repr_type == '6d':
-                        rot_repr = est_rel_poses[:, 3:]
-                        rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
-                    elif rot_repr_type == '9d':
-                        # apply SVD orthogonalization to get the rotation matrix
-                        rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
-                    quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
-                    est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
+                if is_multi_scale:
+                    est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose)
+                    # Evaluate error
+                    posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
+                else:
+                    curr_posit_err = 0.0
+                    curr_orient_err = 0.0
+                    for reduction in eval_reductions:
+                        # Evaluate error
+                        curr_posit_err, curr_orient_err = utils.pose_err(convert_to_quat(rot_repr_type,
+                                                                            est_rel_pose[reduction]),
+                                                                          gt_rel_pose)
+                        posit_err += curr_posit_err
+                        orient_err += curr_orient_err
 
-                # Evaluate error
-                posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
 
                 # Collect statistics
                 pose_stats[i, 0] = posit_err.item()
