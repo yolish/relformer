@@ -13,9 +13,9 @@ from torch import nn, Tensor
 class TransformerEncoder(nn.Module):
     default_config = {
         "hidden_dim":512,
-        "nhead":8,
+        "nhead":4,
         "num_encoder_layers": 6,
-        "dim_feedforward": 2048,
+        "dim_feedforward": 256,
         "dropout":0.1,
         "activation": "gelu",
         "normalize_before": True,
