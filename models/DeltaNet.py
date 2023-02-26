@@ -137,13 +137,18 @@ class DeltaNet(nn.Module):
 
         reg_type = config.get("regressor_type")
         self.estimate_position_with_prior = config.get("position_with_prior")
+        self.estimate_rotation_with_prior = config.get("rotation_with_prior")
         if reg_type == "transformer":
             if self.estimate_position_with_prior:
-                head_dim = self.hidden_dim*2
+                head_dim_x = self.hidden_dim*2
             else:
-                head_dim = self.hidden_dim
-            self.delta_reg_x = Relformer(self.hidden_dim, 3, head_dim)
-            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, self.hidden_dim)
+                head_dim_x = self.hidden_dim
+            if self.estimate_rotation_with_prior:
+                head_dim_q = self.hidden_dim*2
+            else:
+                head_dim_q = self.hidden_dim
+            self.delta_reg_x = Relformer(self.hidden_dim, 3, head_dim_x)
+            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, head_dim_q)
         elif reg_type == "conv":
             self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 3, 2)
             self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, rot_dim, 1)
@@ -218,6 +223,9 @@ class DeltaNet(nn.Module):
         if self.estimate_position_with_prior:
             delta_q, delta_z = self.delta_reg_q(delta_img_q, return_delta_z=True)
             delta_x = self.delta_reg_x(delta_img_x, prior_z=delta_z)
+        elif self.estimate_rotation_with_prior:
+            delta_x, delta_z = self.delta_reg_x(delta_img_x, return_delta_z=True)
+            delta_q = self.delta_reg_q(delta_img_q, prior_z=delta_z)
         else:
             delta_x = self.delta_reg_x(delta_img_x)
             delta_q = self.delta_reg_q(delta_img_q)
