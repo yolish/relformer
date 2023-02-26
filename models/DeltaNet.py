@@ -50,15 +50,18 @@ class DeltaRegressor(nn.Module):
 
 class Relformer(nn.Module):
 
-    def __init__(self, hidden_dim, out_dim, head_dim=None, ):
+    def __init__(self, hidden_dim, out_dim, estimate_with_prior):
         super().__init__()
 
         self.transformer_encoder = TransformerEncoder({"hidden_dim":hidden_dim})
-        if head_dim is None:
-            head_dim = hidden_dim
+        self.estimate_with_prior = estimate_with_prior
         self.position_encoder = PositionEmbeddingLearnedWithPoseToken(hidden_dim//2)
         self.rel_pose_token = nn.Parameter(torch.zeros((1,  hidden_dim)), requires_grad=True)
-        self.head = nn.Sequential(nn.Linear(head_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
+        if self.estimate_with_prior:
+            self.head_w_prior = nn.Sequential(nn.Linear(hidden_dim*2, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))
+        else:
+            self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(),
+                                              nn.Linear(hidden_dim, out_dim))
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -81,10 +84,13 @@ class Relformer(nn.Module):
 
         # regress latent relative with transformer encoder
         delta_z = self.transformer_encoder(delta_seq, position_encoding)[:, 0, :]
-        if prior_z is not None:
-            delta_z = torch.cat((delta_z, prior_z), dim=1)
 
-        delta = self.head(delta_z)
+        if self.estimate_with_prior:
+            assert prior_z is not None
+            delta_z = torch.cat((delta_z, prior_z), dim=1)
+            delta = self.head_w_prior(delta_z)
+        else:
+            delta = self.head(delta_z)
         if return_delta_z:
             return delta, delta_z
         else:
@@ -139,16 +145,8 @@ class DeltaNet(nn.Module):
         self.estimate_position_with_prior = config.get("position_with_prior")
         self.estimate_rotation_with_prior = config.get("rotation_with_prior")
         if reg_type == "transformer":
-            if self.estimate_position_with_prior:
-                head_dim_x = self.hidden_dim*2
-            else:
-                head_dim_x = self.hidden_dim
-            if self.estimate_rotation_with_prior:
-                head_dim_q = self.hidden_dim*2
-            else:
-                head_dim_q = self.hidden_dim
-            self.delta_reg_x = Relformer(self.hidden_dim, 3, head_dim_x)
-            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, head_dim_q)
+            self.delta_reg_x = Relformer(self.hidden_dim, 3, self.estimate_position_with_prior)
+            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, self.estimate_rotation_with_prior)
         elif reg_type == "conv":
             self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 3, 2)
             self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, rot_dim, 1)
