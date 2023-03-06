@@ -36,11 +36,20 @@ Testing
 python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file config/7scenes_config_deltanet_transformer_encoder_6d.json --checkpoint_path checkpoints/relformer_DeltanetEnc_6d_all.pth --gpu 0
 ```
 
-configuration options (/config):
+Pretrained models:
+https://drive.google.com/file/d/1MyfS6a_05u2KFVIaUoLYSkuF-i4jTgdo/view?usp=share_link
+
+### Configuration  (under "/config"):
+
 7scenes_config_deltanet_baseline.json: no feature matching between query and reference images, orientation representation is quaternion
+
 7scenes_config_deltanet_conv.json: feature matching between query and reference images is convolution, orientation representation is quaternion
+
 7scenes_config_deltanet_transformer_encoder: feature matching between query and reference images is transformer encoder, orientation representation is quaternion
+
 7scenes_config_deltanet_transformer_encoder_6d: feature matching between query and reference images is transformer encoder, orientation representation is 6d 
+
 7scenes_config_deltanet_transformer_encoder_9d: feature matching between query and reference images is transformer encoder, orientation representation is 9d 
+
 7scenes_config_deltanet_transformer_encoder_10d: feature matching between query and reference images is transformer encoder, orientation representation is 10d 
  
