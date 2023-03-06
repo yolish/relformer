@@ -37,9 +37,11 @@ python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes -
 ```
 
 Pretrained models:
+1. relformer_DeltanetEnc_6d_all.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset including all scenes
+2. relformer_DeltanetEnc_6d_nofire.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
 https://drive.google.com/file/d/1MyfS6a_05u2KFVIaUoLYSkuF-i4jTgdo/view?usp=share_link
 
-### Configuration  (under "/config"):
+### Configurations  (under './config'):
 
 7scenes_config_deltanet_baseline.json: no feature matching between query and reference images, orientation representation is quaternion
 
