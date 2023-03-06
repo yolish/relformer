@@ -1,8 +1,9 @@
 ## Learning to Localize in Unseen Scenes with Relative Pose Regressors
-Official PyTorch implementation of Learning to Localize in Unseen Scenes with Relative Pose Regressors, for details see our paper [Learning to Localize in Unseen Scenes with Relative Pose Regressors]
+Official PyTorch implementation of our paper: Learning to Localize in Unseen Scenes with Relative Pose Regressors.
 
-The figure below illustrates our approach: a query image and reference image are put to our architecture, we then extract informative features using a convolutional backbone, 
-concatenate the query and reference images features and use two relformers blocks separately attend to position-  and orientation- . 
+We implement our method using a hybrid CNN-Transformer architecture (Relformer), which is illustrated in the figure below. 
+We apply a shared convolutional backbone to extract feature maps from image pairs with two separate branches to predict the translation and rotation parameters, respectively. Feature maps are first concatenated, linearly projected and flattened. They are passed to respective branches with a correspondig 2D learned position encoding. Each branch is implemented with a Transformer Encoder and an MLP head. The Transformer Encoders aggregate paired feature maps into a latent representation of the pose parameters, learned using a dedicated task token. Each MLP head regresses its
+target (∆x or ∆6D) from the respective latent code at the position of the token. 
 ![Learning to Localize in Unseen Scenes with Relative Pose Regressors Illustration](./img/teaser.jpg)
 
 ---
