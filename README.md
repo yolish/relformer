@@ -29,5 +29,5 @@ python main.py --mode train --dataset /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr
 ```
 Testing
 ```
-python main.py test /media/yoli/WDC-2.0-TB-Hard-/7Scenes models/backbones/efficient-net-b0.pth datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv 7scenes_config.json --checkpoint_path out/run_24_01_23_10_03_relformer_checkpoint-10.pth
+python main.py --mode test --dataset /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file 7scenes_config.json --checkpoint_path out/run_24_01_23_10_03_relformer_checkpoint-10.pth
 ```

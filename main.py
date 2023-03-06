@@ -15,6 +15,24 @@ from os.path import join
 from models.relformer.RelFormer import RelFormer, RelFormer2, BrRwlFormer
 from models.DeltaNet import DeltaNet, BaselineRPR, DeltaNetEquiv, TDeltaNet, MSDeltaNet
 import sys
+import torch
+import pandas as pd
+
+def convert_to_quat(rot_repr_type, est_rel_poses):
+    if rot_repr_type != 'q' and rot_repr_type != '10d':
+        if rot_repr_type == '6d':
+            rot_repr = est_rel_poses[:, 3:]
+            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+        elif rot_repr_type == '9d':
+            # apply SVD orthogonalization to get the rotation matrix
+            rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+        quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+        est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
+    return est_rel_poses
+
+def get_knn_indices(query, db):
+    distances = torch.linalg.norm(db-query, axis=1)
+    return torch.argsort(distances)
 
 
 def convert_to_quat(rot_repr_type, est_rel_poses):
@@ -146,10 +164,10 @@ if __name__ == "__main__":
         raise NotImplementedError(arch)
     # Load the checkpoint if needed
     if args.checkpoint_path:
-        model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id))
+        model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id), strict=False)
         logging.info("Initializing from checkpoint: {}".format(args.checkpoint_path))
 
-    eval_reductions = config.get("eval_reduction")
+    eval_reductions = config.get("reduction_eval")
     train_reductions = config.get("reduction")
     if args.mode == 'train':
         # Set to train mode
@@ -172,8 +190,7 @@ if __name__ == "__main__":
 
         transform = utils.train_transforms.get('baseline')
         if args.is_knn:
-            train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file,
-                                                 args.refs_file, args.knn_file, transform, args.knn_len)
+            train_dataset = KNNCameraPoseDataset(args.dataset_path, args.labels_file, args.refs_file, args.knn_file, transform, args.knn_len)
         else:
             train_dataset = RelPoseDataset(args.dataset_path, args.labels_file, transform)
 
@@ -265,9 +282,9 @@ if __name__ == "__main__":
                                                                         batch_idx+1, epoch+1, (running_loss/n_freq_print),
                                                                         posit_err.mean().item(),
                                                                         orient_err.mean().item())
-                    # posit_err, orient_err = utils.pose_err(neighbor_poses.detach(), minibatch['query_pose'].to(dtype=torch.float32).detach())
-                    # msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
-                    #                                                     orient_err.mean().item())
+                    posit_err, orient_err = utils.pose_err(neighbor_poses.detach(), minibatch['query_pose'].to(dtype=torch.float32).detach())
+                    msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
+                                                                         orient_err.mean().item())
                     logging.info(msg)
                     # Resetting temporal loss used for logging
                     running_loss = 0.0
@@ -282,7 +299,6 @@ if __name__ == "__main__":
 
         logging.info('Training completed')
         torch.save(model.state_dict(), checkpoint_prefix + '_relformer_final.pth')
-
 
     else: # Test
         # Set to eval mode
@@ -314,28 +330,37 @@ if __name__ == "__main__":
                 tn = time.time()
 
                 if is_multi_scale:
-                    est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose)
-                    # Evaluate error
-                    posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
-                else:
-                    curr_posit_err = 0.0
-                    curr_orient_err = 0.0
+                    posit_err = 0.0
+                    orient_err = 0.0
                     for reduction in eval_reductions:
                         # Evaluate error
                         curr_posit_err, curr_orient_err = utils.pose_err(convert_to_quat(rot_repr_type,
-                                                                            est_rel_pose[reduction]),
-                                                                          gt_rel_pose)
+                                                                                         est_rel_pose[reduction]),
+                                                                         gt_rel_pose)
                         posit_err += curr_posit_err
                         orient_err += curr_orient_err
 
+                    posit_err /= len(eval_reductions)
+                    orient_err /= len(eval_reductions)
+
+                else:
+                    est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose)
+                    # Evaluate error
+                    posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
 
                 # Collect statistics
                 pose_stats[i, 0] = posit_err.item()
                 pose_stats[i, 1] = orient_err.item()
                 pose_stats[i, 2] = (tn - t0)*1000
 
-                logging.info("Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms]".format(
-                    pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2]))
+                msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms]".format(
+                    pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2])
+
+                posit_err, orient_err = utils.pose_err(minibatch['ref_pose'].to(device).to(dtype=torch.float32).detach(),
+                                                       minibatch['query_pose'].to(dtype=torch.float32).detach())
+                msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
+                                                                                             orient_err.mean().item())
+                logging.info(msg)
 
         # Record overall statistics
         logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))

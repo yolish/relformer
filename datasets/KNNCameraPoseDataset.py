@@ -43,7 +43,7 @@ class KNNCameraPoseDataset(Dataset):
                     nn = nn[1:]
                 if nn != '':
                     my_knns.append(join(dataset_path, nn))
-            if len(my_knns)<=1:
+            if len(my_knns)<1:
                 continue
             if len(my_knns) < sample_size:
                 num_to_add = sample_size-len(my_knns)

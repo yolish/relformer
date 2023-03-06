@@ -112,7 +112,7 @@ class DeltaNet(nn.Module):
     def __init__(self, config, backbone_path):
         super().__init__()
 
-        reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320}
+        reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320, "reduction_6": 1280}
         self.reductions = config.get("reduction")
         self.delta_img_dim = config.get("delta_img_dim")
         self.hidden_dim = config.get("hidden_dim")
@@ -167,6 +167,10 @@ class DeltaNet(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+
+    def forward_backbone(self, img):
+        features = self.backbone.extract_endpoints(img)[self.reductions[0]]
+        return features
 
     def forward(self, data):
         query = data.get('query')
@@ -321,7 +325,7 @@ class TDeltaNet(nn.Module):
     def __init__(self, config, backbone_path):
         super().__init__()
 
-        reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320}
+        reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320, "reduction_6": 1280}
         self.reduction = config.get("reduction")
         self.hidden_dim = config.get("hidden_dim")
         self.type = config.get("type")
