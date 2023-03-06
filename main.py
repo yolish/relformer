@@ -41,24 +41,15 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--mode", help="train or eval", default='train')
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/nfstemp/Datasets/7Scenes/")
-    #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/nfstemp/Datasets/CAMBRIDGE_dataset/")
     arg_parser.add_argument("--rpr_backbone_path", help="path to the backbone path", default="models/backbones/efficient-net-b0.pth")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
-    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_training_pairs_r10.csv")
-    arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
-    arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_training_pairs_neigh_50_nn.csv")
-    #arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_StMarysChurch_test.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads.csv")
-    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_chess.csv")
-    #arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_StMarysChurch_test.csv")
-    arg_parser.add_argument("--config_file", help="path to configuration file", default="CambridgeLandmarks_config_rpmg.json")
+    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
+    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test/NN_7scenes_fire.csv")
+    arg_parser.add_argument("--config_file", help="path to configuration file", default="config/7scenes_config_deltanet_transformer_encoder_6d.json")
     arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")
     arg_parser.add_argument("--test_dataset_id", default="7scenes", help="test set id for testing on all scenes, options: 7scene OR cambridge")
-    #arg_parser.add_argument("--test_dataset_id", default="Cambridge", help="test set id for testing on all scenes, options: 7scene OR cambridge")
     arg_parser.add_argument("--knn_len", help="knn_len", type=int, default="1")
     arg_parser.add_argument("--is_knn", help="is_knn", type=int, default="0")
-    arg_parser.add_argument("--gpu", help="gpu id", default="1")
+    arg_parser.add_argument("--gpu", help="gpu id", default="0")
 
     args = arg_parser.parse_args()
     utils.init_logger()
@@ -85,7 +76,6 @@ if __name__ == "__main__":
     if use_cuda:
         torch.backends.cudnn.fdeterministic = True
         torch.backends.cudnn.benchmark = False
-        #device_id = config.get('device_id')
         device_id = 'cuda:' + args.gpu
     np.random.seed(numpy_seed)
     device = torch.device(device_id)
