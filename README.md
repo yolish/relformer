@@ -26,7 +26,13 @@ In order to run this repository you will need:
 
 ---
 
-### Usage and Pretrained Models 
+### Pretrained models:
+You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: [pretrained models](https://drive.google.com/file/d/1MyfS6a_05u2KFVIaUoLYSkuF-i4jTgdo/view?usp=sharing)
+
+1. relformer_DeltanetEnc_6d_all.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset including all scenes
+2. relformer_DeltanetEnc_6d_nofire.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
+
+### Usage
 Training 
 ```
 python main.py --mode train --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --labels_file datasets/7Scenes/7scenes_training_pairs.csv --config_file config/7scenes_config_deltanet_transformer_encoder_6d.json --gpu 0
@@ -36,10 +42,6 @@ Testing
 python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file config/7scenes_config_deltanet_transformer_encoder_6d.json --checkpoint_path checkpoints/relformer_DeltanetEnc_6d_all.pth --gpu 0
 ```
 
-Pretrained models:
-1. relformer_DeltanetEnc_6d_all.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset including all scenes
-2. relformer_DeltanetEnc_6d_nofire.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
-https://drive.google.com/file/d/1MyfS6a_05u2KFVIaUoLYSkuF-i4jTgdo/view?usp=sharing
 
 ### Configurations  (under './config'):
 
