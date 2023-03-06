@@ -2,7 +2,7 @@
 Official PyTorch implementation of Learning to Localize in Unseen Scenes with Relative Pose Regressors, for details see our paper [Learning to Localize in Unseen Scenes with Relative Pose Regressors]
 
 The figure below illustrates our approach: a query image and reference image are put to our architecture, we then extract informative features using a convolutional backbone, 
-concatinate the query and reference images features and use two relformers blocks separately attend to position-  and orientation- . 
+concatenate the query and reference images features and use two relformers blocks separately attend to position-  and orientation- . 
 ![Learning to Localize in Unseen Scenes with Relative Pose Regressors Illustration](./img/teaser.jpg)
 
 ---
