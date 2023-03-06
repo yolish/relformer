@@ -1,14 +1,29 @@
-## RelFormer
-relformer
+## Learning to Localize in Unseen Scenes with Relative Pose Regressors
+Official PyTorch implementation of Learning to Localize in Unseen Scenes with Relative Pose Regressors, for details see our paper [Learning to Localize in Unseen Scenes with Relative Pose Regressors]
 
-### Overview
-TBA
+The figure below illustrates our approach: a query image and reference image are put to our architecture, we then extract informative features using a convolutional backbone, 
+concatinate the query and reference images features and use two relformers blocks separately attend to position-  and orientation- . 
+![Learning to Localize in Unseen Scenes with Relative Pose Regressors Illustration](./img/teaser.jpg)
 
 ---
 
-### Setup
+### Repository Overview 
 
-1. Download the [Cambridge Landmarks](http://mi.eng.cam.ac.uk/projects/relocalisation/#dataset) dataset and the [7Scenes](https://www.microsoft.com/en-us/research/project/rgb-d-dataset-7-scenes/) dataset
+This code implements:
+
+1. Training of a multiple architectures for multi-scene relative pose regression 
+2. Testing code
+
+---
+
+### Prerequisites
+
+In order to run this repository you will need:
+
+1. Python3 (tested with Python 3.7.7, 3.8.5), PyTorch
+2. Set up dependencies with ```pip install -r requirements.txt```
+3. Download the [Cambridge Landmarks](http://mi.eng.cam.ac.uk/projects/relocalisation/#dataset) dataset and the [7Scenes](https://www.microsoft.com/en-us/research/project/rgb-d-dataset-7-scenes/) dataset
+
 1. Setup a conda env:
 ```
 conda create -n loc python=3.7
