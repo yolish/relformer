@@ -10,8 +10,8 @@ if dataset == "7scenes":
     scenes = ['chess', 'fire', 'heads', 'office', 'pumpkin', 'redkitchen', 'stairs']
     if not os.path.exists(out_filename):
         for s in scenes:
-            cmd = "python main.py test /media/yoli/WDC-2.0-TB-Hard-/7Scenes ./models/backbones/efficient-net-b0.pth " \
-                  "./datasets/7Scenes/7scenes_test_pairs/pairs_test_{}.csv 7scenes_config.json --checkpoint_path {} >> {}".format(s,
+            cmd = "python main.py --mode=test --dataset=/media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path=./models/backbones/efficient-net-b0.pth " \
+                  "--test_labels_file=./datasets/7Scenes/7scenes_test_pairs/pairs_test_{}.csv --config_file=7scenes_config.json --checkpoint_path {} >> {}".format(s,
                                                                                                      checkpoint_path,
                                                                                                     out_filename)
             os.system(cmd)
@@ -24,8 +24,8 @@ else:
 
     if not os.path.exists(out_filename):
         for s in scenes:
-            cmd = 'python main.py test /media/yoli/WDC-2.0-TB-Hard-/CambridgeLandmarks ./models/backbones/efficient-net-b0.pth ' \
-                  './datasets/CambridgeLandmarks/pairs_test_{}.csv cambridge_config.json --checkpoint_path {} >> {}'.format(s,
+            cmd = 'python main.py --mode=test=test --dataset=/media/yoli/WDC-2.0-TB-Hard-/CambridgeLandmarks --rpr_backbone_path=./models/backbones/efficient-net-b0.pth ' \
+                  '--test_labels_file=./datasets/CambridgeLandmarks/pairs_test_{}.csv --config_file=cambridge_config.json --checkpoint_path {} >> {}'.format(s,
                                                                                                                       checkpoint_path,
                                                                                                                       out_filename)
             os.system(cmd)

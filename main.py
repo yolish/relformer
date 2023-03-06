@@ -18,17 +18,6 @@ import sys
 import torch
 import pandas as pd
 
-def convert_to_quat(rot_repr_type, est_rel_poses):
-    if rot_repr_type != 'q' and rot_repr_type != '10d':
-        if rot_repr_type == '6d':
-            rot_repr = est_rel_poses[:, 3:]
-            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
-        elif rot_repr_type == '9d':
-            # apply SVD orthogonalization to get the rotation matrix
-            rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
-        quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
-        est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
-    return est_rel_poses
 
 def get_knn_indices(query, db):
     distances = torch.linalg.norm(db-query, axis=1)
