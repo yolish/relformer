@@ -5,14 +5,21 @@ import pandas as pd
 from os.path import join
 import numpy as np
 import transforms3d as t3d
-
-
+import os
+import torchvision
+from PIL import Image
+from torchvision import transforms
+import torch
 class RelPoseDataset(Dataset):
-    def __init__(self, data_path, pairs_file, transform=None):
+    def __init__(self, data_path, pairs_file, is_reproj, transform=None, reproj_transform=None):
         self.img_path1, self.scenes1, self.scene_ids1, self.poses1, \
         self.img_path2, self.scenes2, self.scene_ids2, self.poses2, self.rel_poses = \
             read_pairs_file(data_path, pairs_file)
         self.transform = transform
+        self.reproj_transform = reproj_transform
+        self.data_path = data_path
+        self.reproj_dir = '/reproj_pytorch/'
+        self.is_reproj = is_reproj
 
     def __len__(self):
         return len(self.img_path1)
@@ -24,16 +31,59 @@ class RelPoseDataset(Dataset):
         pose2 = self.poses2[idx]
         rel_pose = self.rel_poses[idx]
 
+        filename1 = os.path.splitext(os.path.basename(self.img_path1[idx]))[0]
+        filename2 = os.path.splitext(os.path.basename(self.img_path2[idx]))[0]
+        reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename1 + '_' + filename2 + '.png'
+
+        orig_transform = transforms.Compose([transforms.ToPILImage(),
+                                    transforms.ToTensor(),
+                                    #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                                    ])
+
         if self.transform:
+            img1_orig = orig_transform(img1)
+            img2_orig = orig_transform(img2)
             img1 = self.transform(img1)
             img2 = self.transform(img2)
 
+        is_flip = False
         # randomly flip images in an image pair
         if random.uniform(0, 1) > 0.5:
             img1, img2 = img2, img1
+            img1_orig, img2_orig = img2_orig, img1_orig
             pose1, pose2 = pose2, pose1
             rel_pose[:3] = -rel_pose[:3]
             rel_pose[3:] = [rel_pose[3], -rel_pose[4], -rel_pose[5], -rel_pose[6]]
+            reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename2 + '_' + filename1 + '.png'
+            is_flip = True
+
+        img_reproj = None
+        img_depth = None
+        if self.is_reproj:
+            img_reproj = imread(reproj_filename)
+            if is_flip:
+                img_depth = imread(self.img_path2[idx].replace('color.png', 'depth.png'))
+            else:
+                img_depth = imread(self.img_path1[idx].replace('color.png', 'depth.png'))
+
+            img_depth = torch.from_numpy(img_depth.astype(np.float32)).unsqueeze(0)
+            #img_reproj = Image.open(reproj_filename).convert("L")
+            if self.reproj_transform:
+                img_reproj_orig = orig_transform(img_reproj)
+                img_reproj = self.reproj_transform(img_reproj)
+                #print(reproj_filename)
+
+
+            return {'query': img1,
+                    'ref': img2,
+                    'query_pose': pose1,
+                    'ref_pose': pose2,
+                    'rel_pose': rel_pose,
+                    'reproj': img_reproj,
+                    'depth': img_depth,
+                    'query_orig': img1_orig,
+                    'ref_orig': img2_orig,
+                    'reproj_orig': img_reproj_orig}
 
         #todo add positive and negative
 

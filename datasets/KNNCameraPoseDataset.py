@@ -82,21 +82,39 @@ class KNNCameraPoseDataset(Dataset):
         query = self.load_img(query_path)
         query_pose = self.query_to_pose[query_path]
 
-        ref = self.load_img(knn_paths[0])
-        ref_pose = self.db_to_pose[knn_paths[0]]
+        if self.sample_size == 1:
+            ref = self.load_img(knn_paths[0])
+            ref_pose = self.db_to_pose[knn_paths[0]]
 
-        rel_pose = np.zeros(7)
-        x_rel, q_rel = compute_rel_pose(query_pose, ref_pose)
-        rel_pose[:3] = x_rel
-        rel_pose[3:] = q_rel
-
+            rel_pose = np.zeros(7)
+            x_rel, q_rel = compute_rel_pose(query_pose, ref_pose)
+            rel_pose[:3] = x_rel
+            rel_pose[3:] = q_rel
+        else:
+            knn = []
+            knn_imgs = []
+            knn_poses = np.zeros((self.sample_size, 7))
+            #knn_poses = np.zeros((len(knn_paths), 7))
+            for i, nn_path in enumerate(knn_paths):
+                if 'png' not in nn_path:
+                    continue
+                knn.append(self.load_img(nn_path))
+                knn_poses[i, :] = self.db_to_pose[nn_path]
+                knn_imgs.append(nn_path)
+            ref = torch.stack(knn)
+            ref_pose = knn_poses
+        
+            rel_pose = np.zeros((self.sample_size, 7))
+            for i in range(self.sample_size):
+                x_rel, q_rel = compute_rel_pose(query_pose,  knn_poses[i])                            
+                rel_pose[i, :] = np.concatenate([x_rel, q_rel])
+            
         return {'query': query,
                 'ref': ref,
                 'query_pose': query_pose,
                 'ref_pose': ref_pose,
-                'rel_pose': rel_pose}
-
-
+                'rel_pose': rel_pose}    
+    
 
 def read_labels_file(labels_file, dataset_path):
     df = pd.read_csv(labels_file)
