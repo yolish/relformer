@@ -21,15 +21,18 @@ import os
 import torch
 import torch.nn as nn
 import torchvision
+from pytorch3d.transforms import quaternion_to_matrix, matrix_to_quaternion, matrix_to_rotation_6d, rotation_6d_to_matrix
 def convert_to_quat(rot_repr_type, est_rel_poses):
     if rot_repr_type != 'q' and rot_repr_type != '10d':
         if rot_repr_type == '6d':
             rot_repr = est_rel_poses[:, 3:]
-            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+            #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+            rot_repr = rotation_6d_to_matrix(rot_repr)
         elif rot_repr_type == '9d':
             # apply SVD orthogonalization to get the rotation matrix
             rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
-        quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+        #quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+        quaternions = matrix_to_quaternion(rot_repr)
         est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
     return est_rel_poses
 
@@ -38,6 +41,7 @@ def get_knn_indices(query, db):
     return torch.argsort(distances)
 
 if __name__ == "__main__":
+    utils.set_proxy()
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--mode", help="train or eval", default='train')
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/7Scenes/")
@@ -93,6 +97,7 @@ if __name__ == "__main__":
     if use_cuda:
         torch.backends.cudnn.fdeterministic = True
         torch.backends.cudnn.benchmark = False
+        #device_id = config.get('device_id')
         device_id = 'cuda:' + args.gpu
     np.random.seed(numpy_seed)
     device = torch.device(device_id)
@@ -121,7 +126,9 @@ if __name__ == "__main__":
     elif arch == "b-relformer":
         model = BrRwlFormer(config, args.rpr_backbone_path).to(device)
     elif arch == "deltanet":
-        model = DeltaNet(config, args.rpr_backbone_path).to(device)
+        model = DeltaNet(config, args.rpr_backbone_path)
+        #model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
+        model.to(device)
         # support freeze
         estimate_position_with_prior = config.get("position_with_prior")
         estimate_rotation_with_prior = config.get("rotation_with_prior")
@@ -211,23 +218,35 @@ if __name__ == "__main__":
         # Resetting temporal loss used for logging
         running_loss = 0.0
         n_samples = 0
-        reproj_l2_loss = nn.MSELoss()
+        reproj_l2_loss = nn.MSELoss(reduction='sum')
+        skip_n_epochs = config.get('skip_n_epochs')
 
         writer, args.save_dir = utils.init_tensorbaord_log(args, saved_path=args.log_dir)
 
         i = 0
         criterion1 = torch.zeros([1], dtype=torch.float, device=device)
+        criterion = torch.zeros([1], dtype=torch.float, device=device)
+
         for epoch in range(n_epochs):
+            # resume checkpoint from same LR
+            if epoch < skip_n_epochs:
+                for st in range(len(dataloader)):
+                    optim.step()
+                scheduler.step()
+                continue
+
             for batch_idx, minibatch in enumerate(dataloader):
                 for k, v in minibatch.items():
                     minibatch[k] = v.to(device)
                 gt_rel_poses = minibatch['rel_pose'].to(dtype=torch.float32)
-                gt_reproj = minibatch['reproj']
+                if is_reproj:
+                    gt_reproj = minibatch['reproj']
                 gt_rel_poses_orig = gt_rel_poses
                 batch_size = gt_rel_poses.shape[0]
                 if rot_repr_type != 'q' and rot_repr_type != '10d':
                     q = gt_rel_poses[:, 3:]
-                    rot_mat = utils.compute_rotation_matrix_from_quaternion(q)
+                    #rot_mat1 = utils.compute_rotation_matrix_from_quaternion(q)
+                    rot_mat = quaternion_to_matrix(q)
                     if rot_repr_type == '6d':
                         # take first two columns and flatten
                         rot_repr = rot_mat[:,:,:-1].transpose(1,2).reshape(batch_size, -1)
@@ -263,34 +282,42 @@ if __name__ == "__main__":
                     criterion = pose_loss(est_rel_poses, gt_rel_poses)
 
                 if is_reproj == 1:
-                    zero_mask = torch.where(gt_reproj > 0, 1, 0)
-                    criterion1 = reproj_l2_loss(est_reproj*zero_mask, gt_reproj)
+                    non_zero_mask = torch.where(gt_reproj > 0, 1, 0)
+                    criterion1 = reproj_l2_loss(est_reproj*non_zero_mask, gt_reproj)
                     criterion += args.reproj_loss_w * criterion1
                     #torchvision.utils.save_image(gt_reproj, 'out_reproj/gt.png')
                     #torchvision.utils.save_image(est_reproj*zero_mask, 'out_reproj/out.png')
                    # break
-                if is_reproj == 2 and epoch > 20:
+                if is_reproj == 2:# and epoch > 20:
                     gt_reproj_orig = minibatch.get('reproj_orig')
-                    zero_mask = torch.where(gt_reproj_orig > 0, 1, 0)
+                    non_zero_mask = torch.where(gt_reproj_orig > 0, 1, 0)
                     rot_repr = est_rel_poses[:, 3:]
-                    rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
-                    q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                    if rot_repr_type == '6d':
+                        #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                        rot_repr = rotation_6d_to_matrix(rot_repr)
+                        #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                        q = matrix_to_quaternion(rot_repr)
+                    else:
+                        q = rot_repr
                     est_rel_poses1 = torch.cat((est_rel_poses[:, :3], q), dim=1)
                     #rot_repr = gt_rel_poses[:, 3:]
                     #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                    #rot_repr = rotation_6d_to_matrix(rot_repr)
                     #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                    #q = matrix_to_quaternion(rot_repr)
                     #est_rel_poses1 = torch.cat((gt_rel_poses[:, :3], q), dim=1)
                     ref_pose = utils.compute_abs_pose_torch(est_rel_poses1, minibatch.get('query_pose').float())
-                    #ref_pose_ = utils.compute_abs_pose(est_rel_poses1, minibatch.get('query_pose').float(), device)
                     reproj_img = utils.reproject_RGB(minibatch.get('query_orig'), minibatch.get('depth'), minibatch.get('query_pose'), ref_pose)
-                    #reproj_img = reproj_img.clamp(-100, 100)
                     reproj_img = reproj_img.clamp(0, 1)
-                    criterion1 = reproj_l2_loss(reproj_img * zero_mask, gt_reproj_orig)
+                    cnt_non_zero = non_zero_mask.sum()
+                    criterion1 = reproj_l2_loss(reproj_img * non_zero_mask, gt_reproj_orig)/cnt_non_zero
+                    #if criterion1 > 0.01:
+                    #    print(criterion1)
+                    #criterion1 = reproj_l2_loss(reproj_img, gt_reproj_orig)
                     criterion += args.reproj_loss_w * criterion1
                     if i%100 == 0:
                         #gt_reproj_orig_ = reproj_transforms_inv(gt_reproj_orig)
                         #reproj_img_ = reproj_transforms_inv(reproj_img)
-                        #utils.log_img_to_tensorboard_triplet(writer, gt_reproj_orig_, reproj_img_, step=i)
                         utils.log_img_to_tensorboard_triplet(writer, gt_reproj_orig, reproj_img, step=i)
 
                 # Collect for recoding and plotting
@@ -309,10 +336,12 @@ if __name__ == "__main__":
                     if rot_repr_type != 'q' and rot_repr_type != '10d':
                         if rot_repr_type == '6d':
                             rot_repr = est_rel_poses[:, 3:]
-                            rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                            #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                            rot_repr = rotation_6d_to_matrix(rot_repr)
                         elif rot_repr_type == '9d':
                             rot_repr = est_rel_poses[:, 3:].reshape(batch_size, 3, 3).transpose(1,2)
-                        q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                        #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                        q = matrix_to_quaternion(rot_repr)
                         est_rel_poses = torch.cat((est_rel_poses[:,:3], q), dim=1)
 
                     posit_err, orient_err = utils.pose_err(est_rel_poses.detach(), gt_rel_poses_orig.detach())
@@ -343,7 +372,7 @@ if __name__ == "__main__":
         logging.info('Training completed')
         torch.save(model.state_dict(), checkpoint_prefix + '_relformer_final.pth')
 
-    else: # Test
+    elif args.mode == 'test': # Test
         # Set to eval mode
         model.eval()
 
@@ -435,6 +464,57 @@ if __name__ == "__main__":
         logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))
         logging.info("Median pose error: {:.3f}, {:.3f}".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
         logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(pose_stats)))
+
+    else: # feature extraction
+
+        # Set to eval mode
+        model.eval()
+
+        # Set the dataset and data loader
+        transform = utils.test_transforms.get('baseline')
+        if args.is_knn:
+            test_dataset = KNNCameraPoseDataset(args.dataset_path, args.test_labels_file, args.refs_file,
+                                                args.test_knn_file, transform, args.knn_len, args.knn_len, False)
+        else:
+            test_dataset = RelPoseDataset(args.dataset_path, args.test_labels_file, False, transform)
+
+        loader_params = {'batch_size': 1,
+                         'shuffle': False,
+                         'num_workers': config.get('n_workers')}
+        dataloader = torch.utils.data.DataLoader(test_dataset, **loader_params)
+
+        out_file = 'my_knn.csv'
+        knn_df = pd.read_csv(args.test_knn_file, header=None)
+        f = open(out_file, "w")
+        start_index = 0
+        bExtractFeatures = True
+        with torch.no_grad():
+            for i, minibatch in enumerate(dataloader, 0):
+                for k, v in minibatch.items():
+                    minibatch[k] = v.to(device)
+
+                query = minibatch.get('query')
+                refs = minibatch.get('knn')
+
+                if bExtractFeatures:
+                    features_query = model.forward_backbone(query)
+                    features_query = features_query.reshape(1, -1)
+                    n, k, h, w, c = refs.shape
+                    refs = refs.reshape(n * k, h, w, c)
+                    features_refs = model.forward_backbone(refs)
+                    features_refs = features_refs.reshape(n*k, -1)
+                    indices = get_knn_indices(features_query, features_refs)
+                    indices = indices.cpu().numpy()
+                    print(indices)
+                    f.write(knn_df.iloc[i][0] + ",")
+                    for j in indices[start_index:(start_index + args.knn_len - 1)]:
+                        f.write(knn_df.iloc[i][j+1] + ",")
+                    f.write(knn_df.iloc[i][indices[start_index + args.knn_len - 1]+1] + "\n")
+
+        f.close()
+
+
+
 
 
 

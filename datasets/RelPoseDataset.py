@@ -10,6 +10,8 @@ import torchvision
 from PIL import Image
 from torchvision import transforms
 import torch
+from pathlib import Path
+
 class RelPoseDataset(Dataset):
     def __init__(self, data_path, pairs_file, is_reproj, transform=None, reproj_transform=None):
         self.img_path1, self.scenes1, self.scene_ids1, self.poses1, \
@@ -18,7 +20,7 @@ class RelPoseDataset(Dataset):
         self.transform = transform
         self.reproj_transform = reproj_transform
         self.data_path = data_path
-        self.reproj_dir = '/reproj_pytorch/'
+        self.reproj_dir = '/reproj_pytorch2/'
         self.is_reproj = is_reproj
 
     def __len__(self):
@@ -27,13 +29,20 @@ class RelPoseDataset(Dataset):
     def __getitem__(self, idx):
         img1 = imread(self.img_path1[idx])
         img2 = imread(self.img_path2[idx])
+        #img1 = Image.open(self.img_path1[idx])
+        #img2 = Image.open(self.img_path2[idx])
         pose1 = self.poses1[idx]
         pose2 = self.poses2[idx]
         rel_pose = self.rel_poses[idx]
 
         filename1 = os.path.splitext(os.path.basename(self.img_path1[idx]))[0]
         filename2 = os.path.splitext(os.path.basename(self.img_path2[idx]))[0]
-        reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename1 + '_' + filename2 + '.png'
+        path1 = Path(self.img_path1[idx])
+        dir1 = os.path.basename(path1.parent)
+        path2 = Path(self.img_path2[idx])
+        dir2 = os.path.basename(path2.parent)
+        #reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename1 + '_' + filename2 + '.png'
+        reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir1 + '_' + filename1 + '_' + dir2 + '_' + filename2 + '.png'
 
         orig_transform = transforms.Compose([transforms.ToPILImage(),
                                     transforms.ToTensor(),
@@ -54,7 +63,8 @@ class RelPoseDataset(Dataset):
             pose1, pose2 = pose2, pose1
             rel_pose[:3] = -rel_pose[:3]
             rel_pose[3:] = [rel_pose[3], -rel_pose[4], -rel_pose[5], -rel_pose[6]]
-            reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename2 + '_' + filename1 + '.png'
+            #reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename2 + '_' + filename1 + '.png'
+            reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir2 + '_' + filename2 + '_' + dir1 + '_' + filename1 + '.png'
             is_flip = True
 
         img_reproj = None
