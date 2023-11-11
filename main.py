@@ -23,14 +23,17 @@ import torch.nn as nn
 import torchvision
 from pytorch3d.transforms import quaternion_to_matrix, matrix_to_quaternion, matrix_to_rotation_6d, rotation_6d_to_matrix
 def convert_to_quat(rot_repr_type, est_rel_poses):
+    batch_size = est_rel_poses.shape[0]
     if rot_repr_type != 'q' and rot_repr_type != '10d':
         if rot_repr_type == '6d':
             rot_repr = est_rel_poses[:, 3:]
             #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
-            rot_repr = rotation_6d_to_matrix(rot_repr)
+            rot_repr = rotation_6d_to_matrix(rot_repr).transpose(1,2)
         elif rot_repr_type == '9d':
             # apply SVD orthogonalization to get the rotation matrix
-            rot_repr = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
+            rot_repr = est_rel_poses[:, 3:]
+            #rot_repr = utils.symmetric_orthogonalization(rot_repr)
+            rot_repr = rot_repr.reshape(batch_size, 3, 3).transpose(1, 2)
         #quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
         quaternions = matrix_to_quaternion(rot_repr)
         est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
@@ -47,8 +50,8 @@ if __name__ == "__main__":
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/7Scenes/")
     #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/CAMBRIDGE_dataset/")
     arg_parser.add_argument("--rpr_backbone_path", help="path to the backbone path", default="models/backbones/efficient-net-b0.pth")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
-    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
+    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
+    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
     #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
     #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_training_pairs_visloc.csv")
     arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/7Scenes_knn/7scenes_all_scenes.csv")
@@ -272,7 +275,7 @@ if __name__ == "__main__":
                         criterion += pose_loss(est_rel_poses[reduction], gt_rel_poses)
                     criterion /= len(train_reductions)
                 else:
-                    if rot_repr_type == '9d':
+                    if 0:#rot_repr_type == '9d':
                         # not supported for multi-scale
                         # apply SVD orthogonalization to get the rotation matrix
                         est_rel_rot = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
@@ -294,10 +297,15 @@ if __name__ == "__main__":
                     rot_repr = est_rel_poses[:, 3:]
                     if rot_repr_type == '6d':
                         #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
-                        rot_repr = rotation_6d_to_matrix(rot_repr)
+                        rot_repr = rotation_6d_to_matrix(rot_repr).transpose(1,2)
                         #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
                         q = matrix_to_quaternion(rot_repr)
-                    else:
+                    elif rot_repr_type == '9d':
+                        # apply SVD orthogonalization to get the rotation matrix
+                        #rot_repr = utils.symmetric_orthogonalization(rot_repr)
+                        rot_repr = rot_repr.reshape(batch_size, 3, 3).transpose(1,2)
+                        q = matrix_to_quaternion(rot_repr)
+                    else:                        
                         q = rot_repr
                     est_rel_poses1 = torch.cat((est_rel_poses[:, :3], q), dim=1)
                     #rot_repr = gt_rel_poses[:, 3:]
