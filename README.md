@@ -45,7 +45,7 @@ python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes -
 
 ### Configurations  (under './config'):
 
-7scenes_config.json: all features enabled (feature matching, transformer encoder, orientation representation is 6d, reprojection loss, hyper-network
+7scenes_config.json: all features enabled: feature matching, transformer encoder, orientation representation is 6d, reprojection loss, hyper-network
 
 7scenes_config_deltanet_baseline.json: no feature matching between query and reference images, orientation representation is quaternion
 
