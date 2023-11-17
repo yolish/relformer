@@ -98,8 +98,11 @@ def compose(t, rot):
     x[:,:3,3] = t
     return x
 
-def reproject_RGB(rgb_img, depth_img, pose1, pose2):
-    K = np.mat([[585, 0, 320, 0], [0, 585, 240, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+def reproject_RGB(rgb_img, depth_img, pose1, pose2, is_camb=False):
+    if is_camb:
+        K = np.mat([[418.7109375, 0, 240, 0], [0, 418.7109375, 135, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+    else:
+        K = np.mat([[585, 0, 320, 0], [0, 585, 240, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
     t1 = pose1[:,:3]
     t2 = pose2[:,:3]
     q1 = pose1[:,3:]
@@ -117,7 +120,10 @@ def reproject_RGB(rgb_img, depth_img, pose1, pose2):
     extrinsics2 = torch.linalg.inv(pose_mat2).to(rgb_img.device)
     #extrinsics2 = torch.transpose(pose_mat2,1,2).to(rgb_img.device)
 
-    reproj_img = reproject_RGB_kornia(rgb_img, depth_img, K, K, extrinsics1, extrinsics2)
+    if is_camb:
+        reproj_img = reproject_RGB_kornia(rgb_img, depth_img, K, K, extrinsics1, extrinsics2, 480, 270)
+    else:
+        reproj_img = reproject_RGB_kornia(rgb_img, depth_img, K, K, extrinsics1, extrinsics2)
 
     return reproj_img
 
@@ -164,7 +170,6 @@ reproj_transforms = {
                                     transforms.Resize(256),
                                     transforms.CenterCrop(224),
                                     transforms.ToTensor(),
-                                    #transforms.Normalize([0.5], [0.5])
                                     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                                              std=[0.229, 0.224, 0.225])
         ])
