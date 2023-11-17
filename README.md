@@ -35,15 +35,17 @@ You can download our pretrained models for the 7Scenes dataset (trained over all
 ### Usage
 Training 
 ```
-python main.py --mode train --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --labels_file datasets/7Scenes/7scenes_training_pairs.csv --config_file config/7scenes_config_deltanet_transformer_encoder_6d.json --gpu 0
+python main.py --mode train --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --labels_file datasets/7Scenes/7scenes_training_pairs.csv --config_file config/7scenes_config.json --gpu 0
 ```
 Testing
 ```
-python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file config/7scenes_config_deltanet_transformer_encoder_6d.json --checkpoint_path checkpoints/relformer_DeltanetEnc_6d_all.pth --gpu 0
+python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file config/7scenes_config.json --checkpoint_path checkpoints/relformer_all.pth --gpu 0
 ```
 
 
 ### Configurations  (under './config'):
+
+7scenes_config.json: all features enabled (feature matching, transformer encoder, orientation representation is 6d, reprojection loss, hyper-network
 
 7scenes_config_deltanet_baseline.json: no feature matching between query and reference images, orientation representation is quaternion
 
