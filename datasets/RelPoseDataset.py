@@ -41,7 +41,6 @@ class RelPoseDataset(Dataset):
         dir1 = os.path.basename(path1.parent)
         path2 = Path(self.img_path2[idx])
         dir2 = os.path.basename(path2.parent)
-        #reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename1 + '_' + filename2 + '.png'
         reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir1 + '_' + filename1 + '_' + dir2 + '_' + filename2 + '.png'
 
         orig_transform = transforms.Compose([transforms.ToPILImage(),
@@ -62,7 +61,6 @@ class RelPoseDataset(Dataset):
             pose1, pose2 = pose2, pose1
             rel_pose[:3] = -rel_pose[:3]
             rel_pose[3:] = [rel_pose[3], -rel_pose[4], -rel_pose[5], -rel_pose[6]]
-            #reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename2 + '_' + filename1 + '.png'
             reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir2 + '_' + filename2 + '_' + dir1 + '_' + filename1 + '.png'
             depth_file_name = self.img_path2[idx].replace('color.png', 'depth.png')
             is_flip = True
@@ -71,14 +69,11 @@ class RelPoseDataset(Dataset):
         img_depth = None
         if self.is_reproj:
             img_reproj = imread(reproj_filename)
-            print(reproj_filename)
             img_depth = imread(depth_file_name)
             img_depth = torch.from_numpy(img_depth.astype(np.float32)).unsqueeze(0)
-            #img_reproj = Image.open(reproj_filename).convert("L")
             if self.reproj_transform:
                 img_reproj_orig = orig_transform(img_reproj)
                 img_reproj = self.reproj_transform(img_reproj)
-                #print(reproj_filename)
 
             return {'query': img1,
                     'ref': img2,
