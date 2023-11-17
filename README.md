@@ -39,7 +39,7 @@ python main.py --mode train --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes 
 ```
 Testing
 ```
-python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_pairs/pairs_test_chess.csv --config_file config/7scenes_config.json --checkpoint_path checkpoints/relformer_all.pth --gpu 0
+python main.py --mode test --dataset_path /media/yoli/WDC-2.0-TB-Hard-/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7Scenes/7scenes_test_NN/NN_7scenes_chess.csv --config_file config/7scenes_config.json --checkpoint_path checkpoints/relformer_all.pth --gpu 0
 ```
 
 
