@@ -5,14 +5,18 @@ import numpy as np
 from skimage.io import imread
 import torch
 import transforms3d as t3d
-
+from torchvision import transforms
+import torch
+from pathlib import Path
+import os
+import cv2
 class KNNCameraPoseDataset(Dataset):
     """
         A class representing a dataset of query and its knns
     """
 
     def __init__(self, dataset_path, query_labels_file, db_labels_file, knn_file,
-                 transform, knn_len, sample_size=1, sample=True):
+                 transform, knn_len, sample_size=1, sample=True, is_reproj=False):
         super(KNNCameraPoseDataset, self).__init__()
 
         self.query_img_paths, self.query_poses, self.query_scenes, self.query_scenes_ids = read_labels_file(query_labels_file, dataset_path)
@@ -25,6 +29,7 @@ class KNNCameraPoseDataset(Dataset):
         lines = open(knn_file).readlines()
         i = 0
         knn_queries = {}
+        depth_queries = {}
         for l in lines:
             neighbors = l.rstrip().split(",")
             nn = neighbors[0]
@@ -34,6 +39,18 @@ class KNNCameraPoseDataset(Dataset):
             if nn[0] == '/':
                 nn = nn[1:]
             q = join(dataset_path, nn)
+
+            if is_reproj:
+                filename1 = os.path.splitext(os.path.basename(q))[0]
+                path1 = Path(q)
+                dir1 = os.path.basename(path1.parent)
+                scene1 = os.path.basename(path1.parent.parent)
+                depth_file_name = dataset_path + scene1 + '_depth/' + dir1 + '_' + filename1 + '.depth.tiff'
+                if not os.path.exists(depth_file_name):
+                    depth_file_name = dataset_path + scene1 + '_depth/' + dir1 + '_' + filename1 + '.depth.png'
+                    if not os.path.exists(depth_file_name):
+                        print("missing depth file: " + depth_file_name)
+                        continue
             my_knns = []
             for nn in neighbors[1:]:
                 if 'netvlad.npz' in nn:
@@ -59,6 +76,12 @@ class KNNCameraPoseDataset(Dataset):
         self.sample = sample
         self.knn_len = knn_len
         self.dataset_path = dataset_path
+        self.reproj_dir = '/reproj/'
+        self.is_reproj = is_reproj
+        self.orig_transform = transforms.Compose([transforms.ToPILImage(),
+                                                  transforms.Resize((270, 480)),
+                                                  transforms.ToTensor(),
+                                                  ])
 
     def __len__(self):
         return len(self.knn_queries)
@@ -67,6 +90,12 @@ class KNNCameraPoseDataset(Dataset):
         img = imread(img_path)
         if self.transform:
             img = self.transform(img)
+        return img
+
+    def load_orig_img(self, img_path):
+        img = imread(img_path)
+        if self.transform:
+            img = self.orig_transform(img)
         return img
 
     def __getitem__(self, idx):
@@ -82,6 +111,28 @@ class KNNCameraPoseDataset(Dataset):
         query = self.load_img(query_path)
         query_pose = self.query_to_pose[query_path]
 
+        filename1 = os.path.splitext(os.path.basename(query_path))[0]
+        path1 = Path(query_path)
+        dir1 = os.path.basename(path1.parent)
+        scene1 = os.path.basename(path1.parent.parent)
+
+        query_orig = 0
+        knn_orig = 0
+        img_reproj = 0
+        img_depth = 0
+        if self.is_reproj:
+            query_orig = self.load_orig_img(query_path)
+            depth_file_name = self.dataset_path + scene1 + '_depth/' + dir1 + '_' + filename1 + '.depth.tiff'
+            if not os.path.exists(depth_file_name):
+                depth_file_name = self.dataset_path + scene1 + '_depth/' + dir1 + '_' + filename1 + '.depth.png'
+                if not os.path.exists(depth_file_name):
+                    print("missing depth file: " + depth_file_name)
+                    return None
+            img_depth = cv2.imread(depth_file_name, -1)
+            img_depth = cv2.resize(img_depth, (480, 270))
+            # img_depth = imread(depth_file_name)
+            img_depth = torch.from_numpy(img_depth.astype(np.float32)).unsqueeze(0)
+
         if self.sample_size == 1:
             ref = self.load_img(knn_paths[0])
             ref_pose = self.db_to_pose[knn_paths[0]]
@@ -90,6 +141,15 @@ class KNNCameraPoseDataset(Dataset):
             x_rel, q_rel = compute_rel_pose(query_pose, ref_pose)
             rel_pose[:3] = x_rel
             rel_pose[3:] = q_rel
+
+            if self.is_reproj:
+                knn_orig = self.load_orig_img(knn_paths[0])
+                filename2 = os.path.splitext(os.path.basename(knn_paths[0]))[0]
+                path2 = Path(knn_paths[0])
+                dir2 = os.path.basename(path2.parent)
+                reproj_filename = self.dataset_path + scene1 + self.reproj_dir + dir1 + '_' + filename1 + '_' + dir2 + '_' + filename2 + '.png'
+                img_reproj = self.load_orig_img(reproj_filename)
+
         else:
             knn = []
             knn_imgs = []
@@ -101,6 +161,7 @@ class KNNCameraPoseDataset(Dataset):
                 knn.append(self.load_img(nn_path))
                 knn_poses[i, :] = self.db_to_pose[nn_path]
                 knn_imgs.append(nn_path)
+
             ref = torch.stack(knn)
             ref_pose = knn_poses
         
@@ -113,7 +174,12 @@ class KNNCameraPoseDataset(Dataset):
                 'ref': ref,
                 'query_pose': query_pose,
                 'ref_pose': ref_pose,
-                'rel_pose': rel_pose}    
+                'rel_pose': rel_pose,
+                'depth': img_depth,
+                'query_orig': query_orig,
+                'ref_orig': knn_orig,
+                'reproj_orig': img_reproj
+                }
     
 
 def read_labels_file(labels_file, dataset_path):

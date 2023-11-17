@@ -20,7 +20,7 @@ class RelPoseDataset(Dataset):
         self.transform = transform
         self.reproj_transform = reproj_transform
         self.data_path = data_path
-        self.reproj_dir = '/reproj_pytorch2/'
+        self.reproj_dir = '/reproj/'
         self.is_reproj = is_reproj
 
     def __len__(self):
@@ -46,7 +46,6 @@ class RelPoseDataset(Dataset):
 
         orig_transform = transforms.Compose([transforms.ToPILImage(),
                                     transforms.ToTensor(),
-                                    #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
                                     ])
 
         if self.transform:
@@ -55,7 +54,7 @@ class RelPoseDataset(Dataset):
             img1 = self.transform(img1)
             img2 = self.transform(img2)
 
-        is_flip = False
+        depth_file_name = self.img_path1[idx].replace('color.png', 'depth.png')
         # randomly flip images in an image pair
         if random.uniform(0, 1) > 0.5:
             img1, img2 = img2, img1
@@ -65,24 +64,21 @@ class RelPoseDataset(Dataset):
             rel_pose[3:] = [rel_pose[3], -rel_pose[4], -rel_pose[5], -rel_pose[6]]
             #reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + filename2 + '_' + filename1 + '.png'
             reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir2 + '_' + filename2 + '_' + dir1 + '_' + filename1 + '.png'
+            depth_file_name = self.img_path2[idx].replace('color.png', 'depth.png')
             is_flip = True
 
         img_reproj = None
         img_depth = None
         if self.is_reproj:
             img_reproj = imread(reproj_filename)
-            if is_flip:
-                img_depth = imread(self.img_path2[idx].replace('color.png', 'depth.png'))
-            else:
-                img_depth = imread(self.img_path1[idx].replace('color.png', 'depth.png'))
-
+            print(reproj_filename)
+            img_depth = imread(depth_file_name)
             img_depth = torch.from_numpy(img_depth.astype(np.float32)).unsqueeze(0)
             #img_reproj = Image.open(reproj_filename).convert("L")
             if self.reproj_transform:
                 img_reproj_orig = orig_transform(img_reproj)
                 img_reproj = self.reproj_transform(img_reproj)
                 #print(reproj_filename)
-
 
             return {'query': img1,
                     'ref': img2,
@@ -95,7 +91,6 @@ class RelPoseDataset(Dataset):
                     'ref_orig': img2_orig,
                     'reproj_orig': img_reproj_orig}
 
-        #todo add positive and negative
 
         return {'query': img1,
                 'ref': img2,
