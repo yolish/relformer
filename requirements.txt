@@ -7,3 +7,4 @@ torchaudio=0.10.1
 numpy=1.23.3
 pandas=1.3.3
 transforms3d=0.4.1
+pytorch3d
