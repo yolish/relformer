@@ -1,5 +1,5 @@
 """
-Entry point training and testing iAPR
+Entry point training and testing relformer
 """
 import argparse
 import torch
@@ -22,52 +22,39 @@ import torch
 import torch.nn as nn
 import torchvision
 from pytorch3d.transforms import quaternion_to_matrix, matrix_to_quaternion, matrix_to_rotation_6d, rotation_6d_to_matrix, matrix_to_rotation_6d
+
 def convert_to_quat(rot_repr_type, est_rel_poses, mode_6d):
     batch_size = est_rel_poses.shape[0]
     if rot_repr_type != 'q' and rot_repr_type != '10d':
         if rot_repr_type == '6d':
             rot_repr = est_rel_poses[:, 3:]
-            #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
             if mode_6d == 0:
                 rot_repr = rotation_6d_to_matrix(rot_repr).transpose(1,2)
             else:
-                rot_repr = rotation_6d_to_matrix(rot_repr)
+                rot_repr = rotation_6d_to_matrix(rot_repr)            
         elif rot_repr_type == '9d':
             # apply SVD orthogonalization to get the rotation matrix
             rot_repr = est_rel_poses[:, 3:]
-            #rot_repr = utils.symmetric_orthogonalization(rot_repr)
             rot_repr = rot_repr.reshape(batch_size, 3, 3).transpose(1, 2)
-        #quaternions = utils.compute_quaternions_from_rotation_matrices(rot_repr)
         quaternions = matrix_to_quaternion(rot_repr)
         est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
     return est_rel_poses
 
-def get_knn_indices(query, db):
-    distances = torch.linalg.norm(db-query, axis=1)
-    return torch.argsort(distances)
 
 if __name__ == "__main__":
-    utils.set_proxy()
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--mode", help="train or eval", default='train')
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/7Scenes/")
     #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/CAMBRIDGE_dataset/")
     arg_parser.add_argument("--rpr_backbone_path", help="path to the backbone path", default="models/backbones/efficient-net-b0.pth")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
-    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
+    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
+    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
     #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_training_pairs_visloc.csv")
-    #arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/7Scenes_knn/7scenes_all_scenes.csv")
     arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
     #arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_training_pairs_20r.csv")
     arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads_orig.csv")
-    #arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/CambridgeLandmarks_knn_train.csv")
-    #arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_StMarysChurch_test.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads.csv")
-    #arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/7Scenes_test_pairs/7scenes_knn_test_neigh_chess.csv")
     arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/7Scenes_knn/7scenes_knn_test_neigh_chess.csv")
-    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_fire_1.csv")
-    #arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_knn/abs_7scenes_pose.csv_chess_test.csv")
-    #arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_StMarysChurch_test.csv")
+    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_fire.csv")    
     arg_parser.add_argument("--config_file", help="path to configuration file", default="config/7scenes_config.json")
     #arg_parser.add_argument("--config_file", help="path to configuration file", default="config/CambridgeLandmarks_config.json")
     arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")
@@ -127,13 +114,8 @@ if __name__ == "__main__":
 
     arch = config.get("arch")
     is_multi_scale = False
-    if arch == "relformer2":
-        model = RelFormer2(config, args.rpr_backbone_path).to(device)
-    elif arch == "relformer":
-        model = RelFormer(config, args.rpr_backbone_path).to(device)
-    elif arch == "b-relformer":
-        model = BrRwlFormer(config, args.rpr_backbone_path).to(device)
-    elif arch == "deltanet":
+    
+    if arch == "deltanet":
         model = DeltaNet(config, args.rpr_backbone_path)
         #model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
         model.to(device)
@@ -173,6 +155,7 @@ if __name__ == "__main__":
         assert rot_repr_type == '6d' or rot_repr_type == 'q'
     else:
         raise NotImplementedError(arch)
+    
     # Load the checkpoint if needed
     if args.checkpoint_path:
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id), strict=False)
@@ -188,8 +171,6 @@ if __name__ == "__main__":
 
         # Set the loss
         pose_loss = CameraPoseLoss(config).to(device)
-
-        train_w_triplet_loss = False # read from config #TODO Triplet loss
 
         # Set the optimizer and scheduler
         params = list(model.parameters()) + list(pose_loss.parameters())
@@ -236,7 +217,7 @@ if __name__ == "__main__":
         criterion1 = torch.zeros([1], dtype=torch.float, device=device)
         criterion = torch.zeros([1], dtype=torch.float, device=device)
 
-        start_reproj_epoch = n_epochs//30
+        start_reproj_epoch = 0 #n_epochs//30
 
         for epoch in range(n_epochs):
             # resume checkpoint from same LR
@@ -290,7 +271,6 @@ if __name__ == "__main__":
                         # not supported for multi-scale
                         # apply SVD orthogonalization to get the rotation matrix
                         est_rel_rot = est_rel_poses[:, 3:]
-                        #est_rel_rot = utils.symmetric_orthogonalization(est_rel_poses[:, 3:])
                         est_rel_rot = est_rel_rot.transpose(1,2).reshape(batch_size, -1)
                         est_rel_poses = torch.cat((est_rel_poses[:, :3], est_rel_rot), dim=1)
 
@@ -301,25 +281,20 @@ if __name__ == "__main__":
                     non_zero_mask = torch.where(gt_reproj > 0, 1, 0)
                     criterion1 = reproj_l2_loss(est_reproj*non_zero_mask, gt_reproj)
                     criterion += args.reproj_loss_w * criterion1
-                    #torchvision.utils.save_image(gt_reproj, 'out_reproj/gt.png')
-                    #torchvision.utils.save_image(est_reproj*zero_mask, 'out_reproj/out.png')
-                   # break
+                                    
                 if is_reproj == 2 and epoch >= start_reproj_epoch:
                     gt_reproj_orig = minibatch.get('reproj_orig')
                     non_zero_mask = torch.where(gt_reproj_orig > 0, 1, 0)
                     #est_rel_poses = gt_rel_poses
                     rot_repr = est_rel_poses[:, 3:]
-                    if rot_repr_type == '6d':
-                        #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
+                    if rot_repr_type == '6d':                    
                         if mode_6d == 0:
                             rot_repr = rotation_6d_to_matrix(rot_repr).transpose(1,2)
                         else:
-                            rot_repr = rotation_6d_to_matrix(rot_repr)
-                        #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
+                            rot_repr = rotation_6d_to_matrix(rot_repr)                        
                         q = matrix_to_quaternion(rot_repr)
                     elif rot_repr_type == '9d':
-                        # apply SVD orthogonalization to get the rotation matrix
-                        #rot_repr = utils.symmetric_orthogonalization(rot_repr)
+                        # apply SVD orthogonalization to get the rotation matrix                        
                         rot_repr = rot_repr.reshape(batch_size, 3, 3).transpose(1,2)
                         q = matrix_to_quaternion(rot_repr)
                     else:                        
@@ -330,13 +305,8 @@ if __name__ == "__main__":
                     reproj_img = reproj_img.clamp(0, 1)
                     cnt_non_zero = non_zero_mask.sum()
                     criterion1 = reproj_l2_loss(reproj_img * non_zero_mask, gt_reproj_orig)/cnt_non_zero
-                    #if criterion1 > 0.01:
-                    #    print(criterion1)
-                    #criterion1 = reproj_l2_loss(reproj_img, gt_reproj_orig)
                     criterion += args.reproj_loss_w * criterion1
                     if i%100 == 0:
-                        #gt_reproj_orig_ = reproj_transforms_inv(gt_reproj_orig)
-                        #reproj_img_ = reproj_transforms_inv(reproj_img)
                         utils.log_img_to_tensorboard_triplet(writer, gt_reproj_orig, reproj_img, step=i)
 
                 # Collect for recoding and plotting
@@ -355,14 +325,12 @@ if __name__ == "__main__":
                     if rot_repr_type != 'q' and rot_repr_type != '10d':
                         if rot_repr_type == '6d':
                             rot_repr = est_rel_poses[:, 3:]
-                            #rot_repr = utils.compute_rotation_matrix_from_ortho6d(rot_repr)
                             if mode_6d == 0:
                                 rot_repr = rotation_6d_to_matrix(rot_repr).transpose(1, 2)
                             else:
                                 rot_repr = rotation_6d_to_matrix(rot_repr)
                         elif rot_repr_type == '9d':
                             rot_repr = est_rel_poses[:, 3:].reshape(batch_size, 3, 3).transpose(1,2)
-                        #q = utils.compute_quaternions_from_rotation_matrices(rot_repr)
                         q = matrix_to_quaternion(rot_repr)
                         est_rel_poses = torch.cat((est_rel_poses[:,:3], q), dim=1)
 
@@ -472,21 +440,6 @@ if __name__ == "__main__":
                         # Evaluate error
                         posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
 
-                        if is_reproj == 2:
-                            gt_reproj_orig = minibatch.get('reproj_orig')
-                            non_zero_mask = torch.where(gt_reproj_orig > 0, 1, 0)
-                            # est_rel_poses = gt_rel_poses
-                            ref_pose = utils.compute_abs_pose_torch(est_rel_pose, minibatch.get('query_pose').float())
-                            reproj_img = utils.reproject_RGB(minibatch.get('query_orig'), minibatch.get('depth'),
-                                                             minibatch.get('query_pose'), ref_pose, args.is_knn)
-
-                            cnt_non_zero = non_zero_mask.sum()
-                            criterion1 = reproj_l2_loss(reproj_img * non_zero_mask, gt_reproj_orig) / cnt_non_zero
-
-                            torchvision.utils.save_image(gt_reproj_orig, 'reproj/'+str(i)+'reproj_gt.png')
-                            torchvision.utils.save_image(reproj_img, 'reproj/'+str(i)+'reproj_img.png')
-                            torchvision.utils.save_image(minibatch.get('query_orig'), 'reproj/'+str(i)+'query_orig.png')
-                            torchvision.utils.save_image(minibatch.get('ref_orig'), 'reproj/'+str(i)+'ref_orig.png')
                 
                 # Collect statistics
                 pose_stats[i, 0] = posit_err.item()
@@ -496,10 +449,6 @@ if __name__ == "__main__":
                 msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms], reproj_err: {:2f}".format(
                     pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2], criterion1)
 
-                #posit_err, orient_err = utils.pose_err(minibatch['ref_pose'].to(device).to(dtype=torch.float32).detach(),
-                #                                       minibatch['query_pose'].to(dtype=torch.float32).detach())
-                #msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
-                #                                                                             orient_err.mean().item())
                 logging.info(msg)
 
         # Record overall statistics
@@ -507,59 +456,4 @@ if __name__ == "__main__":
         logging.info("Median pose error: {:.3f}, {:.3f}".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
         logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(pose_stats)))
 
-    else: # feature extraction
-
-        # Set to eval mode
-        model.eval()
-
-        # Set the dataset and data loader
-        transform = utils.test_transforms.get('baseline')
-        if args.is_knn:
-            test_dataset = KNNCameraPoseDataset(args.dataset_path, args.test_labels_file, args.refs_file,
-                                                args.test_knn_file, transform, args.knn_len, args.knn_len, False)
-        else:
-            test_dataset = RelPoseDataset(args.dataset_path, args.test_labels_file, False, transform)
-
-        loader_params = {'batch_size': 1,
-                         'shuffle': False,
-                         'num_workers': config.get('n_workers')}
-        dataloader = torch.utils.data.DataLoader(test_dataset, **loader_params)
-
-        out_file = 'my_knn.csv'
-        knn_df = pd.read_csv(args.test_knn_file, header=None)
-        f = open(out_file, "w")
-        start_index = 0
-        bExtractFeatures = True
-        with torch.no_grad():
-            for i, minibatch in enumerate(dataloader, 0):
-                for k, v in minibatch.items():
-                    minibatch[k] = v.to(device)
-
-                query = minibatch.get('query')
-                refs = minibatch.get('knn')
-
-                if bExtractFeatures:
-                    features_query = model.forward_backbone(query)
-                    features_query = features_query.reshape(1, -1)
-                    n, k, h, w, c = refs.shape
-                    refs = refs.reshape(n * k, h, w, c)
-                    features_refs = model.forward_backbone(refs)
-                    features_refs = features_refs.reshape(n*k, -1)
-                    indices = get_knn_indices(features_query, features_refs)
-                    indices = indices.cpu().numpy()
-                    print(indices)
-                    f.write(knn_df.iloc[i][0] + ",")
-                    for j in indices[start_index:(start_index + args.knn_len - 1)]:
-                        f.write(knn_df.iloc[i][j+1] + ",")
-                    f.write(knn_df.iloc[i][indices[start_index + args.knn_len - 1]+1] + "\n")
-
-        f.close()
-
-
-
-
-
-
-
-
-
+    

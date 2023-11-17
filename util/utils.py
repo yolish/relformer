@@ -370,14 +370,6 @@ def log_to_tensorboard(writer, loss1, loss2, step):
         writer.add_scalar('train/total_loss', loss1, step)
         writer.add_scalar('train/reproj_loss', loss2, step)
 
-def log_img_to_tensorboard( writer, gt_reproj_orig, reproj_img, step):
-    with torch.no_grad():
-        batch_size = gt_reproj_orig.shape[0]
-        images_0_grid = make_grid(gt_reproj_orig[:min(3, batch_size)], nrow=min(3, batch_size), normalize=False)
-        images_1_grid = make_grid(reproj_img[:min(3, batch_size)], nrow=min(3, batch_size), normalize=False)
-        image_grid = torch.cat((images_0_grid, images_1_grid), 1)
-        writer.add_image('train/reproj', image_grid, step)
-
 def log_img_to_tensorboard_triplet( writer, gt_reproj_orig, reproj_img, step):
     with torch.no_grad():
         batch_size = gt_reproj_orig.shape[0]
