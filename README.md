@@ -27,10 +27,10 @@ In order to run this repository you will need:
 ---
 
 ### Pretrained models:
-You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: [pretrained models](https://drive.google.com/file/d/1MyfS6a_05u2KFVIaUoLYSkuF-i4jTgdo/view?usp=sharing)
+You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: 
 
-1. relformer_DeltanetEnc_6d_all.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset including all scenes
-2. relformer_DeltanetEnc_6d_nofire.pth: model trained with config/7scenes_config_deltanet_transformer_encoder_6d.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
+1. relformer_all.pth: model trained with config/7scenes_config.json over 7Scenes dataset including all scenes
+2. relformer_nofire.pth: model trained with config/7scenes_config.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
 
 ### Usage
 Training 
