@@ -27,7 +27,7 @@ In order to run this repository you will need:
 ---
 
 ### Pretrained models:
-You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: 
+You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: [pretrained models](https://drive.google.com/file/d/1L7ITGaMA_MGVKW7holrrk_71RkIEPHx8/view?usp=sharing)
 
 1. relformer_all.pth: model trained with config/7scenes_config.json over 7Scenes dataset including all scenes
 2. relformer_nofire.pth: model trained with config/7scenes_config.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
