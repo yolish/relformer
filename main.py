@@ -418,7 +418,7 @@ if __name__ == "__main__":
                     t0 = time.time()
                     res = model(minibatch)
                     est_rel_pose = res['rel_pose']
-                    torch.cuda.synchronize()
+                    #torch.cuda.synchronize()
                     tn = time.time()
 
                     if is_multi_scale:
