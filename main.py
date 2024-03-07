@@ -341,7 +341,7 @@ def run_main(args):
         logging.info('Training completed')
         torch.save(model.state_dict(), checkpoint_prefix + '_relformer_final.pth')
 
-    elif args.mode == 'test': # Test
+    else: # Test
         # Set to eval mode
         model.eval()
 
@@ -500,7 +500,9 @@ def run_main(args):
 
                 logging.info(msg)
 
-        # Record overall statistics
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--mode", help="train or eval", default='test')
     arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="F:/7Scenes/")
     #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="F:/CambridgeLandmarks/")
