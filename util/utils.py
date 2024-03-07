@@ -377,10 +377,11 @@ def init_tensorbaord_log(args, saved_path='default', save_dir=None):
         print("Saving arguments to: {}".format(os.path.join(save_dir, 'args.txt')))
     return writer, save_dir
 
-def log_to_tensorboard(writer, loss1, loss2, step):
+def log_to_tensorboard(writer, loss1, step, loss2=None):
     with torch.no_grad():
         writer.add_scalar('train/total_loss', loss1, step)
-        writer.add_scalar('train/reproj_loss', loss2, step)
+        if loss2 is not None:
+            writer.add_scalar('train/reproj_loss', loss2, step)
 
 def log_img_to_tensorboard( writer, gt_reproj_orig, reproj_img, step):
     with torch.no_grad():

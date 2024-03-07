@@ -60,7 +60,7 @@ def _swish(x):
 
 class Relformer(nn.Module):
 
-    def __init__(self, hidden_dim, out_dim, reduction_dim, feature_dim, do_hyper, delta_pos_reg, hybrid_mode):
+    def __init__(self, hidden_dim, out_dim, reduction_dim, feature_dim, do_hyper, delta_pos_reg, hybrid_mode, uncertainty=False, p=0.1):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.do_hyper = do_hyper
@@ -70,9 +70,12 @@ class Relformer(nn.Module):
         self.position_encoder = PositionEmbeddingLearnedWithPoseToken(hidden_dim//2)
         self.rel_pose_token = nn.Parameter(torch.zeros((1,  hidden_dim)), requires_grad=True)
         self.head = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))                
-        self.head2 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))        
-        self.hypernet_fc_1 = nn.Linear(hidden_dim, (hidden_dim+1) * out_dim)
-
+        self.uncertainty = uncertainty
+        if uncertainty:            
+            self.head2 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Dropout(p), nn.GELU(), nn.Linear(hidden_dim, out_dim))                
+        else:
+            self.head2 = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, out_dim))                            
+        self.hypernet_fc_1 = nn.Linear(hidden_dim, (hidden_dim+1) * out_dim)        
         if self.do_hyper == 17 or self.do_hyper == 18 or self.do_hyper == 19 or self.do_hyper == 21:# or hybrid_mode:            
             self.hypernet_input_proj = nn.Conv2d(reduction_dim*2, hidden_dim, kernel_size=1)            
             self.transformer_encoder_h = TransformerEncoder({"hidden_dim":hidden_dim})            
@@ -119,15 +122,20 @@ class Relformer(nn.Module):
 
             # replace concat with transformer
             w_1 = _swish(self.hypernet_fc_1(delta_z1.view(batch_size, -1)))
-            delta = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
-            delta2 = self.head2(delta_z)
-            delta += delta2        
+			if self.uncertainty:
+                self.training = True                            
+                delta2 = self.head2(delta_z)
+                self.training = False
+            else:                
+                delta2 = self.head2(delta_z)
+            delta1 = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
+            delta = delta1 + delta2            
         elif self.do_hyper == 16 or self.do_hyper == 15:
             # replace concat with transformer
             w_1 = _swish(self.hypernet_fc_1(global_hyper.view(batch_size, -1)))
-            delta = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
+            delta1 = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
             delta2 = self.head2(delta_z)
-            delta += delta2
+            delta = delta1 + delta2
         elif self.do_hyper == 19 or self.do_hyper == 21:
             delta_img_proj2 = self.hypernet_input_proj(delta_img)
             rel_token_h = self.rel_pose_token_h.unsqueeze(1).repeat(1, batch_size, 1)
@@ -145,14 +153,14 @@ class Relformer(nn.Module):
 
             # replace concat with transformer
             w_1 = _swish(self.hypernet_fc_1(delta_z1.view(batch_size, -1)))
-            delta = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
+            delta1 = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
             delta2 = self.head2(delta_z)
-            delta += delta2     
+            delta = delta1 + delta2     
         elif self.do_hyper == 22:   
             w_1 = _swish(self.hypernet_fc_1(delta_z.view(batch_size, -1)))
-            delta = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
+            delta1 = batched_linear_layer(delta_z, w_1.view(w_1.shape[0], (self.hidden_dim+1), self.out_dim))
             delta2 = self.head2(delta_z)
-            delta += delta2                
+            delta = delta1 + delta2                
         else:
             delta = self.head(delta_z)
             if self.delta_pos_reg:
@@ -218,7 +226,7 @@ class OutConv(nn.Module):
 
 class DeltaNet(nn.Module):
 
-    def __init__(self, config, backbone_path):
+    def __init__(self, config, backbone_path, uncertainty):
         super().__init__()
 
         reduction_map = {"reduction_3": 40, "reduction_4": 112, "reduction_5": 320, "reduction_6": 1280}
@@ -283,8 +291,8 @@ class DeltaNet(nn.Module):
         self.estimate_position_with_prior = config.get("position_with_prior")
         self.estimate_rotation_with_prior = config.get("rotation_with_prior")
         if reg_type == "transformer":
-            self.delta_reg_x = Relformer(self.hidden_dim, 3, reduction_map[self.reductions[0]], feature_map[self.reductions[0]], self.do_hyper, delta_pos_reg, False)
-            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, reduction_map[self.reductions[1]], feature_map[self.reductions[0]], self.do_hyper, delta_pos_reg, self.hybrid_mode)
+            self.delta_reg_x = Relformer(self.hidden_dim, 3, reduction_map[self.reductions[0]], feature_map[self.reductions[0]], self.do_hyper, delta_pos_reg, False, uncertainty)
+            self.delta_reg_q = Relformer(self.hidden_dim, rot_dim, reduction_map[self.reductions[1]], feature_map[self.reductions[0]], self.do_hyper, delta_pos_reg, self.hybrid_mode, uncertainty)
         elif reg_type == "conv":
             self.delta_reg_x = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, 3, 2)
             self.delta_reg_q = DeltaRegressor(self.hidden_dim, self.hidden_dim * 2, rot_dim, 1)
@@ -585,12 +593,17 @@ class DeltaNetEquiv(nn.Module):
 
 class BaselineRPR(nn.Module):
     # efficientnet + avg. pooling - "traditional RPR"
-    def __init__(self, backbone_path):
+    def __init__(self, backbone_path, uncertainty, p=0.1):
         super().__init__()
 
+        self.uncertainty = uncertainty
         hidden_dim = 1280*2
-        self.head_x = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 3))
-        self.head_q = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 4))
+        if uncertainty:    
+            self.head_x = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Dropout(p), nn.GELU(), nn.Linear(hidden_dim, 3))
+            self.head_q = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Dropout(p), nn.GELU(), nn.Linear(hidden_dim, 4))        
+        else:            
+            self.head_x = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 3))
+            self.head_q = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.GELU(), nn.Linear(hidden_dim, 4))
 
         self._reset_parameters()
         self.backbone = torch.load(backbone_path)
@@ -609,8 +622,14 @@ class BaselineRPR(nn.Module):
         z_ref = self.avg_pooling_2d(ref).flatten(start_dim=1)
 
         z = torch.cat((z_query, z_ref), dim=1)
-        delta_x = self.head_x(z)
-        delta_q = self.head_q(z)
+        if self.uncertainty:
+            self.training = True
+            delta_x = self.head_x(z)
+            delta_q = self.head_q(z)
+            self.training = False
+        else:
+            delta_x = self.head_x(z)
+            delta_q = self.head_q(z)
         delta_p = torch.cat((delta_x, delta_q), dim=1)
         return {"rel_pose": delta_p}
 

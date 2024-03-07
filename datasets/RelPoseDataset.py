@@ -13,7 +13,7 @@ import torch
 from pathlib import Path
 
 class RelPoseDataset(Dataset):
-    def __init__(self, data_path, pairs_file, is_reproj, transform=None, reproj_transform=None):
+    def __init__(self, data_path, pairs_file, is_reproj, transform=None, reproj_transform=None, is_flip=True):
         self.img_path1, self.scenes1, self.scene_ids1, self.poses1, \
         self.img_path2, self.scenes2, self.scene_ids2, self.poses2, self.rel_poses = \
             read_pairs_file(data_path, pairs_file)
@@ -22,6 +22,7 @@ class RelPoseDataset(Dataset):
         self.data_path = data_path
         self.reproj_dir = '/reproj/'
         self.is_reproj = is_reproj
+        self.is_flip = is_flip
 
     def __len__(self):
         return len(self.img_path1)
@@ -41,7 +42,9 @@ class RelPoseDataset(Dataset):
         dir1 = os.path.basename(path1.parent)
         path2 = Path(self.img_path2[idx])
         dir2 = os.path.basename(path2.parent)
-        reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir1 + '_' + filename1 + '_' + dir2 + '_' + filename2 + '.png'
+        if self.is_reproj:
+            reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir1 + '_' + filename1 + '_' + dir2 + '_' + filename2 + '.png'
+            depth_file_name = self.img_path1[idx].replace('color.png', 'depth.png')
 
         orig_transform = transforms.Compose([transforms.ToPILImage(),
                                     transforms.ToTensor(),
@@ -53,16 +56,17 @@ class RelPoseDataset(Dataset):
             img1 = self.transform(img1)
             img2 = self.transform(img2)
 
-        depth_file_name = self.img_path1[idx].replace('color.png', 'depth.png')
+        
         # randomly flip images in an image pair
-        if random.uniform(0, 1) > 0.5:
+        if self.is_flip and random.uniform(0, 1) > 0.5:
             img1, img2 = img2, img1
             img1_orig, img2_orig = img2_orig, img1_orig
             pose1, pose2 = pose2, pose1
             rel_pose[:3] = -rel_pose[:3]
             rel_pose[3:] = [rel_pose[3], -rel_pose[4], -rel_pose[5], -rel_pose[6]]
-            reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir2 + '_' + filename2 + '_' + dir1 + '_' + filename1 + '.png'
-            depth_file_name = self.img_path2[idx].replace('color.png', 'depth.png')
+            if self.is_reproj:
+                reproj_filename = self.data_path + self.scenes1[idx] + self.reproj_dir + dir2 + '_' + filename2 + '_' + dir1 + '_' + filename1 + '.png'
+                depth_file_name = self.img_path2[idx].replace('color.png', 'depth.png')
             is_flip = True
 
         img_reproj = None

@@ -40,84 +40,11 @@ def convert_to_quat(rot_repr_type, est_rel_poses, mode_6d):
         est_rel_poses = torch.cat((est_rel_poses[:, :3], quaternions), dim=1)
     return est_rel_poses
 
-
-if __name__ == "__main__":
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--mode", help="train or eval", default='train')
-    arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/7Scenes/")
-    #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="/data/datasets/CAMBRIDGE_dataset/")
-    arg_parser.add_argument("--rpr_backbone_path", help="path to the backbone path", default="models/backbones/efficient-net-b0.pth")
-    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes_no/7scenes_training_pairs_no_fire.csv")
-    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
-    arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
-    #arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_training_pairs_20r.csv")
-    arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads_orig.csv")
-    arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/7Scenes_knn/7scenes_knn_test_neigh_chess.csv")
-    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_fire.csv")    
-    arg_parser.add_argument("--config_file", help="path to configuration file", default="config/7scenes_config.json")
-    #arg_parser.add_argument("--config_file", help="path to configuration file", default="config/CambridgeLandmarks_config.json")
-    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")
-    arg_parser.add_argument("--test_dataset_id", default="7scenes", help="test set id for testing on all scenes, options: 7scene OR cambridge")
-    #arg_parser.add_argument("--test_dataset_id", default="Cambridge", help="test set id for testing on all scenes, options: 7scene OR cambridge")
-    arg_parser.add_argument("--knn_len", help="knn_len", type=int, default="1")
-    arg_parser.add_argument("--is_knn", help="is_knn", type=int, default="0")
-    arg_parser.add_argument("--gpu", help="gpu id", default="0")
-    arg_parser.add_argument("--log_dir", help="log dir", default="logs")
-    arg_parser.add_argument("--reproj_loss_w", help="reproj loss weight", type=float, default="1")
-    arg_parser.add_argument("--mode_6d", help="mode_6d", type=int, default="0")
-
-    args = arg_parser.parse_args()
-    utils.init_logger()
-
-    # Record execution details
-    logging.info("Start {} experiment for RelFormer".format(args.mode))
-    logging.info("Using dataset: {}".format(args.dataset_path))
-    logging.info("Using labels file: {}".format(args.labels_file))
-
-    # Read configuration
-    with open(args.config_file, "r") as read_file:
-        config = json.load(read_file)
-    logging.info("Running with configuration:\n{}".format(
-        '\n'.join(["\t{}: {}".format(k, v) for k, v in config.items()])))
-    logging.info("Running with command line params:\n{}".format(
-        "{}".format(' '.join(sys.argv[:]))))
-
-    # Set the seeds and the device
-    use_cuda = torch.cuda.is_available()
-    device_id = 'cpu'
-    torch_seed = 0
-    numpy_seed = 2
-    torch.manual_seed(torch_seed)
-    if use_cuda:
-        torch.backends.cudnn.fdeterministic = True
-        torch.backends.cudnn.benchmark = False
-        #device_id = config.get('device_id')
-        device_id = 'cuda:' + args.gpu
-    np.random.seed(numpy_seed)
-    device = torch.device(device_id)
-
-    rot_repr_type = config.get('rot_repr_type')
-    if rot_repr_type is not None and rot_repr_type != "q":
-        if rot_repr_type == '6d':
-            config['rot_dim'] = 6
-        elif rot_repr_type == '9d':
-            config['rot_dim'] = 9
-        elif rot_repr_type == '10d':
-            config['rot_dim'] = 4 # we output quaternions
-        else:
-            raise NotImplementedError(rot_repr_type)
-    else:
-        config["rot_dim"] = 4
-        config["rot_repr_type"] = 'q'
-        rot_repr_type = 'q'
-
+def load_arch(config, args, device, device_id):
     arch = config.get("arch")
     is_multi_scale = False
-    
     if arch == "deltanet":
-        model = DeltaNet(config, args.rpr_backbone_path)
-        #model = torch.nn.DataParallel(model, device_ids=[1, 2, 3, 4])
+        model = DeltaNet(config, args.rpr_backbone_path, args.uncertainty)
         model.to(device)
         # support freeze
         estimate_position_with_prior = config.get("position_with_prior")
@@ -144,7 +71,7 @@ if __name__ == "__main__":
                     print(name)
 
     elif arch == "baseline":
-        model = BaselineRPR(args.rpr_backbone_path).to(device)
+        model = BaselineRPR(args.rpr_backbone_path, args.uncertainty).to(device)
     elif arch == "deltanetequiv":
         model = DeltaNetEquiv(config).to(device)
     elif arch == "tdeltanet":
@@ -160,7 +87,59 @@ if __name__ == "__main__":
     if args.checkpoint_path:
         model.load_state_dict(torch.load(args.checkpoint_path, map_location=device_id), strict=False)
         logging.info("Initializing from checkpoint: {}".format(args.checkpoint_path))
+        
+    return model, is_multi_scale
 
+def run_main(args):
+    
+    utils.init_logger()    
+
+    # Record execution details
+    logging.info("Start {} experiment for RelFormer".format(args.mode))
+    logging.info("Using dataset: {}".format(args.dataset_path))
+    logging.info("Using labels file: {}".format(args.labels_file))
+
+    # Read configuration
+    with open(args.config_file, "r") as read_file:
+        config = json.load(read_file)
+    logging.info("Running with configuration:\n{}".format(
+        '\n'.join(["\t{}: {}".format(k, v) for k, v in config.items()])))
+    logging.info("Running with command line params:\n{}".format(
+        "{}".format(' '.join(sys.argv[:]))))
+
+    # Set the seeds and the device
+    use_cuda = torch.cuda.is_available()
+    device_id = 'cpu'
+    torch_seed = 0
+    numpy_seed = 2
+    if not args.uncertainty:
+        torch.manual_seed(torch_seed)
+        np.random.seed(numpy_seed)
+    if use_cuda:
+        if not args.uncertainty:
+            torch.backends.cudnn.fdeterministic = True
+        torch.backends.cudnn.benchmark = False        
+        device_id = 'cuda:' + args.gpu    
+    device = torch.device(device_id)
+
+    rot_repr_type = config.get('rot_repr_type')
+    if rot_repr_type is not None and rot_repr_type != "q":
+        if rot_repr_type == '6d':
+            config['rot_dim'] = 6
+        elif rot_repr_type == '9d':
+            config['rot_dim'] = 9
+        elif rot_repr_type == '10d':
+            config['rot_dim'] = 4 # we output quaternions
+        else:
+            raise NotImplementedError(rot_repr_type)
+    else:
+        config["rot_dim"] = 4
+        config["rot_repr_type"] = 'q'
+        rot_repr_type = 'q'
+
+    
+    model, is_multi_scale = load_arch(config, args, device, device_id)    
+    
     eval_reductions = config.get("reduction_eval")
     train_reductions = config.get("reduction")
     mode_6d = args.mode_6d
@@ -345,7 +324,7 @@ if __name__ == "__main__":
                                                                          orient_err.mean().item())
                     logging.info(msg)
 
-                    utils.log_to_tensorboard(writer, criterion.item(), criterion1.item(), i)
+                    utils.log_to_tensorboard(writer, criterion.item(), i, criterion1.item())
 
                     # Resetting temporal loss used for logging
                     running_loss = 0.0
@@ -374,43 +353,113 @@ if __name__ == "__main__":
         if args.is_knn:
             test_dataset = KNNCameraPoseDataset(args.dataset_path, args.test_labels_file, args.refs_file, args.test_knn_file, transform, args.knn_len, args.knn_len, False)
         else:
-            test_dataset = RelPoseDataset(args.dataset_path, args.test_labels_file, is_reproj, transform, transform)
+            test_dataset = RelPoseDataset(args.dataset_path, args.test_labels_file, is_reproj, transform, transform, False)
 
         loader_params = {'batch_size': 1,
                          'shuffle': False,
                          'num_workers': config.get('n_workers')}
         dataloader = torch.utils.data.DataLoader(test_dataset, **loader_params)
         pose_stats = np.zeros((len(dataloader.dataset), 3))
-        criterion1 = 0
-        with torch.no_grad():
-            for i, minibatch in enumerate(dataloader, 0):
-                for k, v in minibatch.items():
-                    minibatch[k] = v.to(device)
-                gt_rel_pose = minibatch.get('rel_pose').to(dtype=torch.float32)
+        criterion1 = 0        
+        
+        if args.uncertainty:        
+            num_of_runs = 40
+            num_of_rows = dataloader.dataset.__len__()
+            pose_list = np.zeros((num_of_rows, num_of_runs, 7))       
+        else:
+            num_of_runs = 1
+            
+        for j in range(num_of_runs):            
+                        
+            if args.uncertainty:            
+                model, is_multi_scale = load_arch(config, args, device, device_id)    
+            
+            with torch.no_grad():
+                for i, minibatch in enumerate(dataloader, 0):
+                    for k, v in minibatch.items():
+                        minibatch[k] = v.to(device)
+                    gt_rel_pose = minibatch.get('rel_pose').to(dtype=torch.float32)
 
-                # Forward pass to predict the initial pose guess
+                    # Forward pass to predict the initial pose guess
+                    if args.is_knn:
+                        posit_err = orient_err = 0
+                        for j in range(args.knn_len):
+                            if args.knn_len == 1:
+                                gt_rel_pose_i = gt_rel_pose
+                                ref_i = minibatch.get('ref')
+                            else:
+                                gt_rel_pose_i = gt_rel_pose[:,j,:]
+                                ref_i = minibatch.get('ref')[:,j,:]
+                            minibatch_i = {'query': minibatch.get('query'), 'ref': ref_i}                        
+                            t0 = time.time()
+                            res = model(minibatch_i)
+                            est_rel_pose = res['rel_pose']
+                            torch.cuda.synchronize()
+                            tn = time.time()
+                            est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose, mode_6d)
+                            # Evaluate error
+                            posit_err_i, orient_err_i = utils.pose_err(est_rel_pose, gt_rel_pose_i)
+                            posit_err += posit_err_i.squeeze()
+                            orient_err += orient_err_i.squeeze()
 
-                if args.is_knn:
-                    posit_err = orient_err = 0
-                    for j in range(args.knn_len):
-                        if args.knn_len == 1:
-                            gt_rel_pose_i = gt_rel_pose
-                            ref_i = minibatch.get('ref')
-                        else:
-                            gt_rel_pose_i = gt_rel_pose[:,j,:]
-                            ref_i = minibatch.get('ref')[:,j,:]
-                        minibatch_i = {'query': minibatch.get('query'), 'ref': ref_i}                        
+                        posit_err /= args.knn_len
+                        orient_err /= args.knn_len
+                            
+                    else:
                         t0 = time.time()
-                        res = model(minibatch_i)
+                        res = model(minibatch)
                         est_rel_pose = res['rel_pose']
                         torch.cuda.synchronize()
                         tn = time.time()
-                        est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose, mode_6d)
-                        # Evaluate error
-                        posit_err_i, orient_err_i = utils.pose_err(est_rel_pose, gt_rel_pose_i)
-                        posit_err += posit_err_i.squeeze()
-                        orient_err += orient_err_i.squeeze()
 
+                        if is_multi_scale:
+                            posit_err = 0.0
+                            orient_err = 0.0
+                            for reduction in eval_reductions:
+                                # Evaluate error
+                                curr_posit_err, curr_orient_err = utils.pose_err(convert_to_quat(rot_repr_type,
+                                                                                                est_rel_pose[reduction]),
+                                                                                gt_rel_pose, mode_6d)
+                                posit_err += curr_posit_err
+                                orient_err += curr_orient_err
+
+                            posit_err /= len(eval_reductions)
+                            orient_err /= len(eval_reductions)
+
+                        else:
+                            est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose, mode_6d)
+                            # Evaluate error
+                            posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
+
+                        
+                    # Collect statistics
+                    pose_stats[i, 0] = posit_err.item()
+                    pose_stats[i, 1] = orient_err.item()
+                    pose_stats[i, 2] = (tn - t0)*1000
+                    
+                    #if i==num_of_rows:
+                    #    break       
+                    
+                    if args.uncertainty:                    
+                        pose_list[i, j] = est_rel_pose.squeeze().cpu().numpy()
+
+                    msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms], reproj_err: {:2f}".format(
+                        pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2], criterion1)
+
+                    #posit_err, orient_err = utils.pose_err(minibatch['ref_pose'].to(device).to(dtype=torch.float32).detach(),
+                    #                                       minibatch['query_pose'].to(dtype=torch.float32).detach())
+                    #msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
+                    #                                                                             orient_err.mean().item())
+                    logging.info(msg)                    
+                               
+
+            # Record overall statistics
+            logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))
+            logging.info("Median pose error: {:.3f}, {:.3f}".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
+            logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(pose_stats)))
+            
+        if args.uncertainty:
+            np.savetxt(args.uncertainty_file, pose_list.reshape(num_of_rows, -1), delimiter=",", fmt='%s')
                     posit_err /= args.knn_len
                     orient_err /= args.knn_len
                         
@@ -452,8 +501,37 @@ if __name__ == "__main__":
                 logging.info(msg)
 
         # Record overall statistics
-        logging.info("Performance of {} on {}".format(args.checkpoint_path, args.labels_file))
-        logging.info("Median pose error: {:.3f}, {:.3f}".format(np.nanmedian(pose_stats[:, 0]), np.nanmedian(pose_stats[:, 1])))
-        logging.info("Mean RPR inference time:{:.2f}[ms]".format(np.mean(pose_stats)))
+    arg_parser.add_argument("--mode", help="train or eval", default='test')
+    arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="F:/7Scenes/")
+    #arg_parser.add_argument("--dataset_path", help="path to the physical location of the dataset", default="F:/CambridgeLandmarks/")
+    arg_parser.add_argument("--rpr_backbone_path", help="path to the backbone path", default="models/backbones/efficient-net-b0.pth")
+    arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/7Scenes/7scenes_training_pairs.csv")
+    #arg_parser.add_argument("--labels_file", help="pairs file", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
+    arg_parser.add_argument("--refs_file", help="path to a file mapping reference images to their poses", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv")
+    arg_parser.add_argument("--knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/cambridge_four_scenes.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads_orig.csv")
+    #arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/7Scenes_knn/7scenes_knn_test_neigh_chess.csv")
+    arg_parser.add_argument("--test_knn_file", help="path to a file mapping query images to their knns", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_OldHospital_test.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads.csv")
+    arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_fire.csv")    
+    #arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_OldHospital_test.csv")    
+    arg_parser.add_argument("--config_file", help="path to configuration file", default="config/7scenes_config.json")
+    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")
+    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model", default="checkpoints_7/relformer_DeltanetEnc_6d_nofire.pth")
+    arg_parser.add_argument("--test_dataset_id", default="7scenes", help="test set id for testing on all scenes, options: 7scene OR cambridge")
+    #arg_parser.add_argument("--test_dataset_id", default="Cambridge", help="test set id for testing on all scenes, options: 7scene OR cambridge")
+    arg_parser.add_argument("--knn_len", help="knn_len", type=int, default="1")
+    arg_parser.add_argument("--is_knn", help="is_knn", type=int, default="0")
+    arg_parser.add_argument("--gpu", help="gpu id", default="0")
+    arg_parser.add_argument("--log_dir", help="log dir", default="logs")
+    arg_parser.add_argument("--reproj_loss_w", help="reproj loss weight", type=float, default="1")
+    arg_parser.add_argument("--mode_6d", help="mode_6d", type=int, default="0")
+    arg_parser.add_argument("--uncertainty", help="uncertainty", type=int, default="0")   
+    arg_parser.add_argument("--uncertainty_file", help="uncertainty file", default="pose_results.csv")   
+     
 
+    args = arg_parser.parse_args()
     
+    abspath = os.path.abspath(__file__)
+    dname = os.path.dirname(abspath)
+    os.chdir(dname)
+    
+    run_main(args)
