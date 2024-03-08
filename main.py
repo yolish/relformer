@@ -431,14 +431,10 @@ def run_main(args):
                             # Evaluate error
                             posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
 
-                        
                     # Collect statistics
                     pose_stats[i, 0] = posit_err.item()
                     pose_stats[i, 1] = orient_err.item()
-                    pose_stats[i, 2] = (tn - t0)*1000
-                    
-                    #if i==num_of_rows:
-                    #    break       
+                    pose_stats[i, 2] = (tn - t0)*1000                    
                     
                     if args.uncertainty:                    
                         pose_list[i, j] = est_rel_pose.squeeze().cpu().numpy()
@@ -446,10 +442,6 @@ def run_main(args):
                     msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms], reproj_err: {:2f}".format(
                         pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2], criterion1)
 
-                    #posit_err, orient_err = utils.pose_err(minibatch['ref_pose'].to(device).to(dtype=torch.float32).detach(),
-                    #                                       minibatch['query_pose'].to(dtype=torch.float32).detach())
-                    #msg = msg + ", distance from neighbor images: {:.2f}[m], {:.2f}[deg]".format(posit_err.mean().item(),
-                    #                                                                             orient_err.mean().item())
                     logging.info(msg)                    
                                
 
@@ -460,46 +452,7 @@ def run_main(args):
             
         if args.uncertainty:
             np.savetxt(args.uncertainty_file, pose_list.reshape(num_of_rows, -1), delimiter=",", fmt='%s')
-                    posit_err /= args.knn_len
-                    orient_err /= args.knn_len
-                        
-                else:
-                    t0 = time.time()
-                    res = model(minibatch)
-                    est_rel_pose = res['rel_pose']
-                    #torch.cuda.synchronize()
-                    tn = time.time()
-
-                    if is_multi_scale:
-                        posit_err = 0.0
-                        orient_err = 0.0
-                        for reduction in eval_reductions:
-                            # Evaluate error
-                            curr_posit_err, curr_orient_err = utils.pose_err(convert_to_quat(rot_repr_type,
-                                                                                            est_rel_pose[reduction]),
-                                                                            gt_rel_pose, mode_6d)
-                            posit_err += curr_posit_err
-                            orient_err += curr_orient_err
-
-                        posit_err /= len(eval_reductions)
-                        orient_err /= len(eval_reductions)
-
-                    else:
-                        est_rel_pose = convert_to_quat(rot_repr_type, est_rel_pose, mode_6d)
-                        # Evaluate error
-                        posit_err, orient_err = utils.pose_err(est_rel_pose, gt_rel_pose)
-
-                
-                # Collect statistics
-                pose_stats[i, 0] = posit_err.item()
-                pose_stats[i, 1] = orient_err.item()
-                pose_stats[i, 2] = (tn - t0)*1000
-
-                msg = "Pose error: {:.3f}[m], {:.3f}[deg], inferred in {:.2f}[ms], reproj_err: {:2f}".format(
-                    pose_stats[i, 0],  pose_stats[i, 1],  pose_stats[i, 2], criterion1)
-
-                logging.info(msg)
-
+                    
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
@@ -516,10 +469,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/7Scenes_test_NN/NN_7scenes_fire.csv")    
     #arg_parser.add_argument("--test_labels_file", help="pairs file", default="datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_OldHospital_test.csv")    
     arg_parser.add_argument("--config_file", help="path to configuration file", default="config/7scenes_config.json")
-    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")
-    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model", default="checkpoints_7/relformer_DeltanetEnc_6d_nofire.pth")
-    arg_parser.add_argument("--test_dataset_id", default="7scenes", help="test set id for testing on all scenes, options: 7scene OR cambridge")
-    #arg_parser.add_argument("--test_dataset_id", default="Cambridge", help="test set id for testing on all scenes, options: 7scene OR cambridge")
+    arg_parser.add_argument("--checkpoint_path", help="path to a pre-trained RPR model")    
     arg_parser.add_argument("--knn_len", help="knn_len", type=int, default="1")
     arg_parser.add_argument("--is_knn", help="is_knn", type=int, default="0")
     arg_parser.add_argument("--gpu", help="gpu id", default="0")

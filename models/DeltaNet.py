@@ -122,7 +122,7 @@ class Relformer(nn.Module):
 
             # replace concat with transformer
             w_1 = _swish(self.hypernet_fc_1(delta_z1.view(batch_size, -1)))
-			if self.uncertainty:
+            if self.uncertainty:
                 self.training = True                            
                 delta2 = self.head2(delta_z)
                 self.training = False

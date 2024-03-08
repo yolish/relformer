@@ -16,7 +16,7 @@ if args.dataset == "7scenes":
     scenes = ['chess', 'fire', 'heads', 'office', 'pumpkin', 'redkitchen', 'stairs']
     #scenes = ['chess']
     for s in scenes:
-       cmd = "python main.py --mode=test  --dataset_path=/data/datasets/7Scenes/ --test_dataset_id=7scenes\
+       cmd = "python main.py --mode=test  --dataset_path=/data/datasets/7Scenes/ \
                   --test_labels_file=datasets/7Scenes_test_NN/NN_7scenes_{}.csv --config_file={} --checkpoint_path {} --gpu={} --is_knn={} >> {}".format(s,
                                                                                                      args.config_file,
                                                                                                      args.checkpoint,
@@ -30,7 +30,7 @@ else:
     scenes = ['KingsCollege', 'OldHospital', 'ShopFacade', 'StMarysChurch']
 
     for s in scenes:
-        cmd = "python main.py --mode=test --dataset_path=/data/datasets/CAMBRIDGE_dataset/  --test_dataset_id=Cambridge\
+        cmd = "python main.py --mode=test --dataset_path=/data/datasets/CAMBRIDGE_dataset/  \
               --test_labels_file=datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_{}_test.csv \
               --test_knn_file=datasets/CambridgeLandmarks/abs_cambridge_pose_sorted.csv_{}_test.csv_with_netvlads.csv-knn-cambridge_four_scenes.csv_with_netvlads.csv \
               --config_file={} --checkpoint_path {} --gpu={} --is_knn=1 >> {}".format(
