@@ -1,4 +1,4 @@
-## Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments
+## Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments (CVIU Febuary 2026)
 Official PyTorch implementation of our paper: [Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments](https://www.sciencedirect.com/science/article/pii/S1077314225003522?via%3Dihub)
 
 **Relformer** is a hybrid CNN-Transformer architecture designed to push the boundaries of Relative Pose Regression (RPR). By combining a convolutional backbone with transformer encoders and hypernetwork-driven adaptation, Relformer achieves superior zero-shot localization and adaptability in unseen environments.
@@ -128,6 +128,7 @@ Contributions are welcome! Please feel free to submit a Pull Request or open an 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+
 
 
 
