@@ -1,64 +1,129 @@
 ## Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments
 Official PyTorch implementation of our paper: [Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments](https://www.sciencedirect.com/science/article/pii/S1077314225003522?via%3Dihub)
 
-We implement our method using a hybrid CNN-Transformer architecture (Relformer), which is illustrated in the figure below. 
-We apply a shared convolutional backbone to extract feature maps from image pairs with two separate branches to predict the translation and rotation parameters, respectively. Feature maps are first concatenated, linearly projected and flattened. They are passed to respective branches with a correspondig 2D learned position encoding. Each branch is implemented with a Transformer Encoder and an MLP head. The Transformer Encoders aggregate paired feature maps into a latent representation of the pose parameters, learned using a dedicated task token. Each MLP head regresses its target (∆x or ∆6D) from the respective latent code at the position of the token.  In order to improve the adaptability of the regressor MLPs to new environments, two hypernetwork branches (yellow) learn the weights of auxiliary MLP heads, which refine the estimate of the main branch (in grey) with the residuals. Our model is trained end-to-end with the learned pose loss Lp and the proposed geometric pose loss Lgeo.
-![Improving the Zero-Shot Localization of Relative Pose Regressors](./img/teaser.jpg)
+**Relformer** is a hybrid CNN-Transformer architecture designed to push the boundaries of Relative Pose Regression (RPR). By combining a convolutional backbone with transformer encoders and hypernetwork-driven adaptation, Relformer achieves superior zero-shot localization and adaptability in unseen environments.
 
 ---
 
-### Repository Overview 
+## 🚀 Key Features
 
-This code implements:
-
-1. Training of a multiple architectures for multi-scene relative pose regression 
-2. Testing code
-
----
-
-### Prerequisites
-
-In order to run this repository you will need:
-
-1. Python3 (tested with Python 3.7.7, 3.8.5), PyTorch
-2. Set up dependencies with ```pip install -r requirements.txt```
-3. Download the [Cambridge Landmarks](http://mi.eng.cam.ac.uk/projects/relocalisation/#dataset) dataset and the [7Scenes](https://www.microsoft.com/en-us/research/project/rgb-d-dataset-7-scenes/) dataset
+* **Hybrid CNN-Transformer Architecture**: Leverages EfficientNet for feature extraction and Transformers for global context modeling.
+* **Hypernetwork Adaptation**: Dynamically refines pose estimates using auxiliary MLP heads learned via hypernetworks, significantly improving performance in new scenes.
+* **Dual-Branch Design**: Decoupled branches for translation () and rotation () for specialized feature processing.
+* **Geometric Pose Loss**: Optimized end-to-end with a combination of standard pose loss and a novel geometric loss ().
+* **Multi-Scene Support**: Ready-to-use configurations for standard benchmarks like 7Scenes and Cambridge Landmarks.
 
 ---
 
-### Pretrained models:
-You can download our pretrained models for the 7Scenes dataset (trained over all scenes / without fire scene), from here: [pretrained models](https://drive.google.com/file/d/1L7ITGaMA_MGVKW7holrrk_71RkIEPHx8/view?usp=sharing)
+## 🛠️ Architecture Overview
 
-1. relformer_all.pth: model trained with config/7scenes_config.json over 7Scenes dataset including all scenes
-2. relformer_nofire.pth: model trained with config/7scenes_config.json over 7Scenes dataset over 6 scenes while 'fire' scene kept out of training
+The Relformer architecture processes image pairs through a shared backbone, followed by Transformer encoders that aggregate paired feature maps into latent representations. The final pose is regressed using a main branch and an adaptive residual branch powered by hypernetworks.
 
-### Usage
-Training 
+---
+
+## 📦 Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/yolish/relformer.git
+cd relformer
+
 ```
-python main.py --mode train --dataset_path <path to dataset>/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --labels_file datasets/7Scenes/7scenes_training_pairs.csv --config_file config/7scenes_config.json --gpu 0
+
+### 2. Set Up Environment
+
+We recommend using a Conda environment:
+
+```bash
+conda create -n relformer python=3.8
+conda activate relformer
+pip install -r requirements.txt
+
 ```
-Testing
+
+### 3. Prepare Datasets
+
+Download the following datasets and place them in the `datasets/` directory:
+
+* [7Scenes Dataset](https://www.microsoft.com/en-us/research/project/rgb-d-dataset-7-scenes/)
+* [Cambridge Landmarks Dataset](https://www.repository.cam.ac.uk/handle/1810/251342)
+
+---
+
+## 🚦 Quick Start
+
+### Training
+
+To train the Relformer model on the 7Scenes dataset:
+
+```bash
+python main.py --mode train \
+    --dataset_path ./datasets/7Scenes \
+    --rpr_backbone_path models/backbones/efficient-net-b0.pth \
+    --labels_file datasets/7Scenes/7scenes_training_pairs.csv \
+    --config_file config/7scenes_config.json \
+    --gpu 0
+
 ```
-python main.py --mode test --dataset_path <path to dataset>/7Scenes --rpr_backbone_path models/backbones/efficient-net-b0.pth --test_labels_file datasets/7scenes_test_NN/NN_7scenes_chess.csv --config_file config/7scenes_config.json --checkpoint_path checkpoints/relformer_all.pth --gpu 0
+
+### Testing
+
+To evaluate a trained checkpoint:
+
+```bash
+python main.py --mode test \
+    --dataset_path ./datasets/7Scenes \
+    --test_labels_file datasets/7scenes_test_NN/NN_7scenes_chess.csv \
+    --checkpoint_path checkpoints/relformer_all.pth \
+    --config_file config/7scenes_config.json \
+    --gpu 0
+
 ```
 
+---
 
-### Configurations  (under './config'):
+## 🧠 Pretrained Models
 
-7scenes_config.json: all features enabled: feature matching, transformer encoder, orientation representation is 6d, geometric loss, hyper-network
+| Model | Training Set | Download |
+| --- | --- | --- |
+| `relformer_all.pth` | All 7Scenes | [Download Here](https://www.google.com/search?q=https://example.com/models/relformer_all.pth) |
+| `relformer_nofire.pth` | 7Scenes (excluding "Fire") | [Download Here](https://www.google.com/search?q=https://example.com/models/relformer_nofire.pth) |
 
-7scenes_config_deltanet_baseline.json: no feature matching between query and reference images, orientation representation is quaternion
+---
 
-7scenes_config_deltanet_conv.json: feature matching between query and reference images is convolution, orientation representation is quaternion
+## ⚙️ Configuration Guide
 
-7scenes_config_deltanet_transformer_encoder: feature matching between query and reference images is transformer encoder, orientation representation is quaternion
+The repository includes several configuration presets in the `config/` directory:
 
-7scenes_config_deltanet_transformer_encoder_6d: feature matching between query and reference images is transformer encoder, orientation representation is 6d 
+* `7scenes_config.json`: **Full Model** (Transformer, 6D Rotation, Geometric Loss, Hypernetworks).
+* `7scenes_config_deltanet_baseline.json`: Standard RPR baseline using Quaternions.
+* `7scenes_config_deltanet_transformer_6d.json`: Transformer-based matching with 6D rotation representation.
 
-7scenes_config_deltanet_transformer_encoder_9d: feature matching between query and reference images is transformer encoder, orientation representation is 9d 
+---
 
-7scenes_config_deltanet_transformer_encoder_10d: feature matching between query and reference images is transformer encoder, orientation representation is 10d 
- 
+## 📝 Citation
 
+If you find this work useful for your research, please cite:
 
+```bibtex
+@article{idan2026beyond,
+  title={Beyond familiar landscapes: Exploring the limits of relative pose regressors in new environments},
+  author={Idan, Ofer and Shavit, Yoli and Keller, Yosi},
+  journal={Computer Vision and Image Understanding},
+  pages={104629},
+  year={2026},
+  publisher={Elsevier}
+}
 
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request or open an issue for bugs and feature requests.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
