@@ -10,7 +10,7 @@ Official PyTorch implementation of our paper: [Beyond Familiar Landscapes: Explo
 * **Hybrid CNN-Transformer Architecture**: Leverages EfficientNet for feature extraction and Transformers for global context modeling.
 * **Hypernetwork Adaptation**: Dynamically refines pose estimates using auxiliary MLP heads learned via hypernetworks, significantly improving performance in new scenes.
 * **Dual-Branch Design**: Decoupled branches for translation () and rotation () for specialized feature processing.
-* **Geometric Pose Loss**: Optimized end-to-end with a combination of standard pose loss and a novel geometric loss ().
+* **Geometric Pose Loss**: Optimized end-to-end with a combination of standard pose loss and a novel geometric loss.
 * **Multi-Scene Support**: Ready-to-use configurations for standard benchmarks like 7Scenes and Cambridge Landmarks.
 
 ---
@@ -128,4 +128,5 @@ Contributions are welcome! Please feel free to submit a Pull Request or open an 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+
 
