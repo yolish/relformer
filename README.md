@@ -1,5 +1,5 @@
 ## Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments
-Official PyTorch implementation of our paper: Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments (https://www.sciencedirect.com/science/article/pii/S1077314225003522?via%3Dihub).
+Official PyTorch implementation of our paper: Beyond Familiar Landscapes: Exploring the Limits of Relative Pose Regressors in New Environments [https://www.sciencedirect.com/science/article/pii/S1077314225003522?via%3Dihub].
 
 We implement our method using a hybrid CNN-Transformer architecture (Relformer), which is illustrated in the figure below. 
 We apply a shared convolutional backbone to extract feature maps from image pairs with two separate branches to predict the translation and rotation parameters, respectively. Feature maps are first concatenated, linearly projected and flattened. They are passed to respective branches with a correspondig 2D learned position encoding. Each branch is implemented with a Transformer Encoder and an MLP head. The Transformer Encoders aggregate paired feature maps into a latent representation of the pose parameters, learned using a dedicated task token. Each MLP head regresses its target (∆x or ∆6D) from the respective latent code at the position of the token.  In order to improve the adaptability of the regressor MLPs to new environments, two hypernetwork branches (yellow) learn the weights of auxiliary MLP heads, which refine the estimate of the main branch (in grey) with the residuals. Our model is trained end-to-end with the learned pose loss Lp and the proposed geometric pose loss Lgeo.
@@ -59,4 +59,5 @@ python main.py --mode test --dataset_path <path to dataset>/7Scenes --rpr_backbo
 
 7scenes_config_deltanet_transformer_encoder_10d: feature matching between query and reference images is transformer encoder, orientation representation is 10d 
  
+
 
