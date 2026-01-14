@@ -19,6 +19,7 @@ Official PyTorch implementation of our paper: [Beyond Familiar Landscapes: Explo
 
 The Relformer architecture processes image pairs through a shared backbone, followed by Transformer encoders that aggregate paired feature maps into latent representations. The final pose is regressed using a main branch and an adaptive residual branch powered by hypernetworks.
 
+![Improving the Zero-Shot Localization of Relative Pose Regressors](./img/teaser.jpg)
 ---
 
 ## 📦 Installation
@@ -127,3 +128,4 @@ Contributions are welcome! Please feel free to submit a Pull Request or open an 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+
